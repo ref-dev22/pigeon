@@ -95,6 +95,9 @@ h1.hero-reveal { animation-delay: .3s; }
 p.hero-reveal { animation-delay: .45s; }
 
 .sky-scene { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+/* Generated sky sits behind the daylight washes; the clipping stays on the art. */
+.sky-scene::before { content: ''; position: absolute; inset: -2%; background-image: radial-gradient(ellipse at 83% 21%, rgba(245, 243, 255, .16) 0%, transparent 41%), radial-gradient(ellipse at 75% 85%, rgba(224, 231, 255, .2) 0%, transparent 49%), linear-gradient(125deg, rgba(245, 248, 252, .4) 3%, rgba(219, 234, 254, .07) 65%, rgba(232, 234, 255, .1)), url('/art/pigeon-sky.webp'); background-size: cover; background-position: right center; background-repeat: no-repeat; transform: scale(1.01); transform-origin: 75% 40%; }
+.sky-scene > * { display: none; }
 .sky-haze { position: absolute; border-radius: 50%; filter: blur(35px); }
 .sky-haze--one { width: 70%; height: 48%; left: 45%; top: -15%; background: radial-gradient(ellipse, #fff 0%, rgba(255,255,255,.65) 20%, transparent 65%); transform: rotate(-35deg); animation: haze-drift 22s ease-in-out infinite alternate; }
 .sky-haze--two { width: 75%; height: 22%; left: 30%; top: 63%; background: rgba(255, 255, 255, .43); transform: rotate(-28deg); animation: haze-drift 18s ease-in-out -8s infinite alternate-reverse; }
@@ -123,6 +126,11 @@ p.hero-reveal { animation-delay: .45s; }
 .section-heading > p { color: var(--muted); font-size: 13px; margin-top: 22px; }
 .section-intro { max-width: 650px; margin: -19px 0 54px; color: var(--muted); font-size: 13px; line-height: 1.9; }
 .section-intro p { margin: 0; }
+.section-art { display: block; height: auto; max-width: 100%; object-fit: contain; mix-blend-mode: multiply; filter: brightness(1.04); pointer-events: none; user-select: none; }
+.how-section > .reveal { position: relative; }
+.how-section .section-heading, .how-section .section-intro { max-width: min(650px, calc(100% - 275px)); }
+.section-art--envelope { position: absolute; top: -24px; right: -12px; width: 265px; }
+.section-art--feather { width: 175px; margin: 20px 0 -20px 8px; }
 .steps { padding: 0; margin: 0; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 38px; }
 .steps li { position: relative; padding-top: 26px; border-top: 1px solid var(--line-strong); }
 .steps .num { font-family: var(--serif); font-size: 43px; line-height: 1; color: #adbacb; display: block; margin-bottom: 25px; }
@@ -131,8 +139,9 @@ p.hero-reveal { animation-delay: .45s; }
 .steps li::after { content: '\2197'; position: absolute; right: 5px; top: 27px; font-size: 22px; color: #afbccb; transition: transform .3s, color .3s; }
 .steps li:hover::after { transform: translate(3px, -3px); color: var(--accent); }
 .product-section { background: linear-gradient(135deg, #eff5fc, #f4f2fa 70%, #f9f6ef); border-block: 1px solid var(--line); }
-.product-section .section-heading { text-align: center; }
+.product-section .section-heading { position: relative; text-align: center; }
 .product-section .section-heading .eyebrow { justify-content: center; }
+.section-art--pages { position: absolute; top: 9px; right: -20px; width: 235px; }
 .product-stage { position: relative; display: grid; grid-template-columns: 1.45fr 1fr; align-items: start; gap: 28px; padding: 23px 0 62px; }
 .preview-label { font-size: 8px; margin: 0 0 13px 2px; letter-spacing: .14em; }
 .board-preview { position: relative; z-index: 1; }
@@ -305,17 +314,24 @@ code { padding: 3px 6px; border: 1px solid var(--line); border-radius: 3px; back
 @keyframes checking-pulse { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(204, 162, 78, 0); } 50% { opacity: .65; box-shadow: 0 0 0 4px rgba(204, 162, 78, .09); } }
 @keyframes brand-flap { 0%, 100% { transform: rotate(0) scaleY(1); } 50% { transform: rotate(-20deg) scaleY(.45); } }
 @keyframes brand-lift { 0%, 100% { transform: translateY(0); } 30%, 70% { transform: translateY(-4px) rotate(-5deg); } }
+@keyframes sky-ken-burns { from { transform: scale(1.01) translate3d(0, 0, 0); } to { transform: scale(1.055) translate3d(-.65%, .45%, 0); } }
+
+@media (prefers-reduced-motion: no-preference) {
+  .sky-scene::before { animation: sky-ken-burns 28s ease-in-out infinite alternate; }
+}
 
 @media (min-width: 1700px) { .hero { padding-left: max(7.6%, calc((100vw - 1450px) / 2)); } }
 @media (max-width: 1100px) {
-  .hero { padding-inline: 6%; }
-  .hero-copy { width: 64%; }
+  .hero { padding: 320px 6% 112px; align-items: flex-start; }
+  .hero-copy { width: 100%; max-width: 690px; }
+  .sky-scene::before { inset: 65px -2% auto; height: clamp(290px, 57.1429vw, 600px); background-position: right center; mask-image: linear-gradient(transparent 0%, #000 18%, #000 75%, transparent 100%); transform-origin: 70% 35%; }
   .hero h1 { font-size: clamp(59px, 6.2vw, 75px); }
   .hero .eyebrow { font-size: 8px; letter-spacing: .12em; }
   .sky-pigeon-flight { width: 44%; top: 26%; right: -2%; }
   .editorial-section { padding: 90px 6%; }
   .grid { grid-template-columns: minmax(0, 1fr); }
   .who-section > .reveal, .faq-layout { gap: 40px; }
+  .section-art--pages { top: 25px; right: -14px; width: 190px; }
 }
 @media (max-width: 760px) {
   .topbar { min-height: 84px; padding: 18px 5%; gap: 12px; }
@@ -343,10 +359,16 @@ code { padding: 3px 6px; border: 1px solid var(--line); border-radius: 3px; back
   .sky-sparkle--two { top: 134px; right: 71%; }
   .sky-haze--one { top: 0; }
   .sky-haze--two { top: 32%; }
+  .sky-scene::before { inset: 65px -2% auto; height: 290px; background-position: right center; mask-image: linear-gradient(transparent 0%, #000 18%, #000 75%, transparent 100%); transform-origin: 70% 35%; }
   .editorial-section { padding: 75px 6%; }
   .section-heading { margin-bottom: 33px; }
   .section-heading h2 { font-size: 46px; }
   .section-intro { margin-top: -9px; font-size: 12px; }
+  .how-section .section-heading, .how-section .section-intro { max-width: none; }
+  .section-art--envelope { position: static; width: 190px; margin: -32px auto 25px; }
+  .section-art--pages { position: static; width: 210px; margin: 13px auto -6px; }
+  .who-section .section-heading { position: relative; }
+  .section-art--feather { position: absolute; right: 0; top: -34px; width: 80px; margin: 0; }
   .steps { gap: 22px; }
   .steps b { font-size: 12px; }
   .steps .d { font-size: 11px; }

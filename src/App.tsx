@@ -228,6 +228,16 @@ function Landing({ route }: { route: Route }) {
             away.
           </p>
           </div>
+          <img
+            className="section-art section-art--envelope"
+            src="/art/drifting-envelope.webp"
+            width="768"
+            height="768"
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            decoding="async"
+          />
           <ol className="steps">
             <li>
               <span className="num">1</span>
@@ -261,6 +271,16 @@ function Landing({ route }: { route: Route }) {
               <span className="eyebrow"><span className="section-index">02</span> A quieter kind of update</span>
               <h2>Small changes.<br /><em>Clear answers.</em></h2>
               <p>Your pages, together. The important bits, delivered.</p>
+              <img
+                className="section-art section-art--pages"
+                src="/art/pages-to-letters.webp"
+                width="1024"
+                height="768"
+                alt=""
+                aria-hidden="true"
+                loading="lazy"
+                decoding="async"
+              />
             </div>
             <div className="product-stage">
               <div className="board-preview">
@@ -359,6 +379,16 @@ function Landing({ route }: { route: Route }) {
           <div className="section-heading">
             <h3 className="eyebrow"><span className="section-index">03</span> Who it's for</h3>
             <h2>For the things<br /><em>life runs on.</em></h2>
+            <img
+              className="section-art section-art--feather"
+              src="/art/delicate-feather.webp"
+              width="768"
+              height="768"
+              alt=""
+              aria-hidden="true"
+              loading="lazy"
+              decoding="async"
+            />
           </div>
           <div className="examples">
             <div className="ex">
