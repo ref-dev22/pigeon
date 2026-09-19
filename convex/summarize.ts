@@ -79,6 +79,95 @@ export function heuristicSummary(diff: string, focus?: string): Summary {
   return { summary, importance, source: "heuristic" };
 }
 
+// Structured decision about a change from a "System One" decision model
+// (TypeSafe Jev via OpenRouter's decisions endpoint). It does not write prose;
+// it returns typed judgments with probabilities, which is exactly what the
+// importance score and the "is this worth an email" gate need.
+export type Decision = {
+  importance: number; // 1..5
+  confidence: number; // 0..1
+  worthEmail: number; // probability 0..1
+  touchesFocus: number | null; // probability, or null when no focus was given
+};
+
+export async function decideImportance(args: {
+  diff: string;
+  title?: string;
+  url: string;
+  focus?: string;
+}): Promise<Decision | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const model = process.env.DECISION_MODEL;
+  if (!apiKey || !model) return null;
+  const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://openrouter.ai/api/v1").replace(/\/v1\/?$/, "");
+  const diff = args.diff.length > 16000 ? args.diff.slice(0, 16000) + "\n...(truncated)" : args.diff;
+  const questions: Record<string, unknown> = {
+    importance: {
+      type: "score",
+      instructions:
+        "How important is this page change for a reader who asked to be emailed when the page really changes?",
+      criteria: [
+        "Cosmetic or automatic: timestamps, counters, ads, formatting",
+        "Minor wording with no practical effect",
+        "Worth reading but no action needed",
+        "Affects money, dates, availability or requirements",
+        "The reader should act now",
+      ],
+    },
+    worth_email: {
+      type: "noul",
+      instructions: "Should the reader receive an email about this change right now?",
+      criteria: {
+        true: "The change carries real information the reader would want to know",
+        false: "Noise, cosmetic, or automatic content only",
+      },
+    },
+  };
+  if (args.focus) {
+    questions.touches_focus = {
+      type: "noul",
+      instructions: "Does the change touch what the reader said they care about (reader_focus)?",
+      criteria: {
+        true: "The changed text concerns the reader focus",
+        false: "Unrelated to the reader focus",
+      },
+    };
+  }
+  try {
+    const res = await fetch(baseUrl + "/alpha/decisions", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer " + apiKey },
+      body: JSON.stringify({
+        model,
+        state: { page: args.title ?? args.url, url: args.url, reader_focus: args.focus ?? null, diff },
+        questions,
+      }),
+    });
+    if (!res.ok) {
+      console.warn("decision model returned", res.status, (await res.text()).slice(0, 300));
+      return null;
+    }
+    const data = (await res.json()) as {
+      answers?: {
+        importance?: { score?: number; confidence?: number };
+        worth_email?: { noul?: number };
+        touches_focus?: { noul?: number };
+      };
+    };
+    const a = data.answers;
+    if (!a?.importance || typeof a.importance.score !== "number") return null;
+    return {
+      importance: Math.min(5, Math.max(1, Math.round(a.importance.score) + 1)),
+      confidence: a.importance.confidence ?? 0,
+      worthEmail: a.worth_email?.noul ?? 0.5,
+      touchesFocus: args.focus ? (a.touches_focus?.noul ?? null) : null,
+    };
+  } catch (e) {
+    console.warn("decision model failed", String(e));
+    return null;
+  }
+}
+
 export async function modelSummary(args: {
   diff: string;
   title?: string;

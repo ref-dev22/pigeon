@@ -5,7 +5,7 @@ import { components, internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { hashText, stabilize } from "./lib";
-import { heuristicSummary, modelSummary } from "./summarize";
+import { decideImportance, heuristicSummary, modelSummary } from "./summarize";
 
 const firecrawl = new FirecrawlClient(components.firecrawl);
 
@@ -147,10 +147,20 @@ export const checkWatch = internalAction({
     //    heuristic runs first; the model is only paid for when the change is
     //    more than cosmetic.
     const quick = heuristicSummary(diff, watch.focus);
-    const summary =
-      quick.importance <= 1 && addedLines + removedLines <= 2
-        ? quick
-        : (await modelSummary({ diff, title, url: watch.url, focus: watch.focus })) ?? quick;
+    let summary = quick;
+    if (!(quick.importance <= 1 && addedLines + removedLines <= 2)) {
+      // Two models, two jobs: the decision model judges, the language model
+      // writes. They run in parallel; either can be missing.
+      const args = { diff, title, url: watch.url, focus: watch.focus };
+      const [decision, prose] = await Promise.all([decideImportance(args), modelSummary(args)]);
+      summary = prose ?? quick;
+      if (decision && decision.confidence >= 0.5) {
+        let importance = decision.importance;
+        if (decision.touchesFocus !== null && decision.touchesFocus >= 0.8) importance = Math.max(importance, 4);
+        if (decision.worthEmail < 0.3) importance = Math.min(importance, 1);
+        summary = { ...summary, importance };
+      }
+    }
     await ctx.runMutation(internal.watches.setSummary, {
       changeId,
       summary: summary.summary,
