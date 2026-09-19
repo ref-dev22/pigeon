@@ -10,9 +10,9 @@
 - **Components:** @convex-dev/static-hosting, @firecrawl/firecrawl-convex, @agentmail/convex
 - **Convex features:** schema, tables, indexes, queries, mutations, actions, HTTP actions, crons, scheduled functions, realtime queries
 - **Auth:** Convex Auth
-- **AI models:** none configured yet (OpenAI-compatible endpoint, model set by `OPENAI_MODEL`; heuristic fallback in use)
+- **AI models:** openai/gpt-5.6-luna (summaries, via an OpenAI-compatible endpoint set by `OPENAI_BASE_URL`), typesafe/jev-1.13 (importance and email-worthiness decisions, via OpenRouter's decisions endpoint); heuristic fallback when either is unavailable
 - **Started:** 2026-09-19T16:33:05Z
-- **Last updated:** 2026-09-19T20:55:00Z
+- **Last updated:** 2026-09-19T22:40:00Z
 
 ## Log
 
@@ -44,3 +44,13 @@ Dark bento-grid redesign: benefit-led headline, the product itself as the hero v
 Fixed alert delivery on the cloud deployment. Convex components do not inherit the deployment's environment variables, and the AgentMail component version in use reads its key from the component environment without declaring it, so sends failed with a missing-key error. Patched the component config to declare `AGENTMAIL_API_KEY` and bound it by reference from the app; patch-package applies the patch on install (`convex/convex.config.ts`, `patches/`). After the fix, a real change on a page hosted on the live site produced an alert that AgentMail reports as sent.
 
 Deployed to production: backend on Convex cloud, frontend on convex.site through the static-hosting component. First real Firecrawl scrape on production succeeded (a GOV.UK page, title extracted).
+
+### 2026-09-19 - 8ee1f0c
+Inbound email works end to end on production. The webhook route now uses the AgentMail handle that carries the `onMessageReceived` callback; a bare handle verified and stored events but never routed them. A real message from a member's address added a page to their board with the requested daily interval and received an automatic reply (`convex/http.ts`).
+
+Hardening after an independent code review: checks are claimed with a `checkingSince` marker so the cron and "Check now" never scrape the same page twice; owners are capped at five boards and each page keeps at most fifty changes; the language model is only called when the heuristic says the change is more than cosmetic; private-network URLs are rejected; inbound mail must pass SPF or DKIM and is capped by the board's page limit; changing an interval reschedules the next check; alert emails are lowercased for matching; the email status after enqueueing is `queued`, not `sent` (`convex/watches.ts`, `convex/checks.ts`, `convex/email.ts`, `convex/lib.ts`, `convex/boards.ts`, `convex/schema.ts`).
+
+Two models, two jobs: a structured decision model (TypeSafe Jev through OpenRouter's decisions endpoint) now judges importance, whether the change deserves an email, and whether it touches the reader's stated focus, returning typed answers with probabilities; the language model still writes the two-sentence summary. They run in parallel, and either can be missing (`convex/summarize.ts`, `convex/checks.ts`).
+
+### 2026-09-19 - 2c21ae4
+Replaced the dark bento landing with a light editorial design: daytime sky hero, serif display type, tiny tracked labels, a small gold call to action, staggered load and scroll reveals, a gliding origami pigeon that also flaps when a check is triggered, all disabled under reduced motion. Hero and section artwork were generated with an image model and stored under `public/art` with their prompts in `art-prompts.md`. Board, page and change screens follow the same light system (`src/App.tsx`, `src/styles.css`, `src/PigeonMotion.tsx`, `index.html`).
