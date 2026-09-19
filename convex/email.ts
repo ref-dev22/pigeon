@@ -79,11 +79,16 @@ export const sendChangeEmail = internalMutation({
       return;
     }
     const title = watch.title ?? watch.url;
-    const stars = "!".repeat(Math.max(1, (change.importance ?? 3) - 2));
+    const label =
+      (change.importance ?? 3) >= 5
+        ? "Act now"
+        : (change.importance ?? 3) >= 4
+          ? "Money, dates or availability"
+          : "Worth a look";
     const appUrl = process.env.APP_URL ?? process.env.CONVEX_SITE_URL ?? "";
     const link = appUrl ? appUrl.replace(/\/$/, "") + "/#/change/" + changeId : "";
     const text =
-      "Pigeon noticed a change on: " + title + "\n" +
+      label + ". Pigeon noticed a change on: " + title + "\n" +
       watch.url + "\n\n" +
       (change.summary ?? "The page changed.") + "\n\n" +
       "+" + change.addedLines + " lines, -" + change.removedLines + " lines. " +
@@ -92,7 +97,7 @@ export const sendChangeEmail = internalMutation({
       "Reply to this email with a link to start watching another page.";
     const html =
       "<div style=\"font-family:ui-sans-serif,system-ui,sans-serif;max-width:560px;color:#1f2937\">" +
-      "<p style=\"margin:0 0 6px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#6b7280\">Pigeon " + escapeHtml(stars) + "</p>" +
+      "<p style=\"margin:0 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#6b7280\">Pigeon · " + escapeHtml(label) + "</p>" +
       "<h2 style=\"margin:0 0 4px;font-size:18px\">" + escapeHtml(title) + "</h2>" +
       "<p style=\"margin:0 0 16px;font-size:13px\"><a href=\"" + escapeHtml(watch.url) + "\" style=\"color:#2563eb\">" + escapeHtml(watch.url) + "</a></p>" +
       "<p style=\"font-size:16px;line-height:1.5;margin:0 0 16px\">" + escapeHtml(change.summary ?? "The page changed.") + "</p>" +
@@ -104,10 +109,11 @@ export const sendChangeEmail = internalMutation({
     try {
       await agentmail.sendMessage(ctx, inboxId, {
         to: recipients,
-        subject: "Changed: " + title.slice(0, 80),
+        subject: title.slice(0, 70) + " changed: " + (change.summary ?? "").slice(0, 60).replace(/\s+\S*$/, ""),
         text,
         html,
         labels: ["pigeon", "change"],
+        headers: { "X-Pigeon-Change": String(changeId) },
       });
       // "queued" is honest: AgentMail sends asynchronously with retries.
       await ctx.db.patch(changeId, { emailStatus: "queued", emailError: undefined });
