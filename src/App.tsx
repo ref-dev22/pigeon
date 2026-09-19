@@ -3,6 +3,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { Authenticated, Unauthenticated, AuthLoading, useMutation, useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { Reveal, SkyBackdrop, PigeonGlider, PigeonMark, PulseDots, flapPigeon } from "./motion";
 
 // ---------- tiny hash router ----------
 type Route =
@@ -88,18 +89,7 @@ function importanceLabel(i: number | null | undefined): string {
 }
 
 function Logo() {
-  return (
-    <svg viewBox="0 0 32 32" aria-hidden="true">
-      <defs>
-        <linearGradient id="pigeonLogo" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#8b7cff" />
-          <stop offset="100%" stopColor="#6d5dfc" />
-        </linearGradient>
-      </defs>
-      <circle cx="16" cy="16" r="15" fill="url(#pigeonLogo)" />
-      <path d="M9 17c2-5 8-7 14-6-3 1-5 3-6 6-1 2-3 3-5 3l-1 3-1-1 1-3c-1-1-2-1-2-2z" fill="#fff" />
-    </svg>
-  );
+  return <PigeonMark />;
 }
 
 // ---------- app shell ----------
@@ -190,20 +180,18 @@ function Landing({ route }: { route: Route }) {
 
   return (
     <div className="page landing">
-      <section className="bento">
-        <div className="hero">
+      <section className="hero-full">
+        <SkyBackdrop />
+        <PigeonGlider />
+        <div className="hero-inner">
           <span className="eyebrow">
             <Logo /> a newsletter for pages that don't have one
           </span>
-          <h1>Get an email when a page changes. Only when it matters.</h1>
+          <h1>A carrier pigeon for pages that never write back.</h1>
+          <p className="hero-sub">Get an email when a page changes. Only when it matters.</p>
           <p className="lede">The pages you need to watch don't send newsletters.</p>
-          <p>
-            School notice boards, embassy pages, community announcements, a clinic's schedule, a landlord's portal, a
-            government fee table. Pigeon checks them and writes you in plain language, with the exact diff one click
-            away.
-          </p>
           {route.name === "join" && (
-            <p className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
+            <p className="hint" style={{ marginTop: 12, marginBottom: 0 }}>
               You have an invite. Sign in or continue as a guest and it will be applied.
             </p>
           )}
@@ -216,95 +204,121 @@ function Landing({ route }: { route: Route }) {
               Sign in with email
             </button>
           </div>
-          <div className="demo">
-            <div className="demo-head">
-              <span className="demo-dots">
-                <i />
-                <i />
-                <i />
+          <p className="hero-note">
+            School notice boards, embassy pages, community announcements, a clinic's schedule, a landlord's portal, a
+            government fee table. Pigeon checks them and writes you in plain language, with the exact diff one click
+            away.
+          </p>
+        </div>
+        <span className="scroll-cue">scroll</span>
+      </section>
+
+      <Reveal as="section" className="band b-how">
+        <span className="section-label">Chapter one</span>
+        <h3>How it works</h3>
+        <ol className="steps">
+          <li>
+            <span className="num">1</span>
+            <span>
+              <b>Paste a link</b>
+              <span className="d">Any public page. No account needed to try it.</span>
+            </span>
+          </li>
+          <li>
+            <span className="num">2</span>
+            <span>
+              <b>We check on a schedule</b>
+              <span className="d">Every 30 minutes to once a week, your call.</span>
+            </span>
+          </li>
+          <li>
+            <span className="num">3</span>
+            <span>
+              <b>You get a plain-language email</b>
+              <span className="d">Only when it really changes, with the exact diff attached.</span>
+            </span>
+          </li>
+        </ol>
+      </Reveal>
+
+      <Reveal as="section" className="band b-board">
+        <span className="section-label">The board</span>
+        <h3>One page, watched. One card when it moves.</h3>
+        <div className="demo">
+          <div className="demo-head">
+            <span className="demo-dots">
+              <i />
+              <i />
+              <i />
+            </span>
+            <span className="demo-title">My board</span>
+            <span className="demo-live">live</span>
+          </div>
+          <div className="demo-body">
+            <div className="demo-row">
+              <span className="dot ok" />
+              <span className="demo-page">
+                <b>Springfield Primary — Notices</b>
+                <span className="demo-url">springfield.sch.uk/notices</span>
               </span>
-              <span className="demo-title">My board</span>
-              <span className="demo-live">live</span>
+              <span className="demo-when">checked 12 min ago</span>
             </div>
-            <div className="demo-body">
-              <div className="demo-row">
-                <span className="dot ok" />
-                <span className="demo-page">
-                  <b>Springfield Primary — Notices</b>
-                  <span className="demo-url">springfield.sch.uk/notices</span>
-                </span>
-                <span className="demo-when">checked 12 min ago</span>
+            <div className="demo-row demo-row-busy">
+              <span className="dot pending" />
+              <span className="demo-page">
+                <b>Embassy — Appointments</b>
+                <span className="demo-url">embassy.example/appointments</span>
+              </span>
+              <span className="demo-when">
+                <PulseDots label="checking" />
+              </span>
+            </div>
+            <div className="demo-card">
+              <div className="demo-card-head">
+                <b>What changed</b>
+                <span className="chip i4">money, dates or availability</span>
               </div>
-              <div className="demo-card">
-                <div className="demo-card-head">
-                  <b>What changed</b>
-                  <span className="chip i4">money, dates or availability</span>
-                </div>
-                <p>
-                  The summer term fee deadline moved forward to 14 June. Late payments now carry a £25 charge.
-                </p>
-                <div className="demo-foot">
-                  <span className="plus">+3</span>
-                  <span className="minus">−2</span>
-                  <span className="demo-unit">lines</span>
-                  <span className="demo-link">see diff</span>
-                </div>
+              <p>
+                The summer term fee deadline moved forward to 14 June. Late payments now carry a £25 charge.
+              </p>
+              <div className="demo-foot">
+                <span className="plus">+3</span>
+                <span className="minus">−2</span>
+                <span className="demo-unit">lines</span>
+                <span className="demo-link">see diff</span>
               </div>
             </div>
           </div>
         </div>
+      </Reveal>
 
-        <div className="bento-card b-how">
-          <h3>How it works</h3>
-          <ol className="steps">
-            <li>
-              <span className="num">1</span>
-              <span>
-                <b>Paste a link</b>
-                <span className="d">Any public page. No account needed to try it.</span>
-              </span>
-            </li>
-            <li>
-              <span className="num">2</span>
-              <span>
-                <b>We check on a schedule</b>
-                <span className="d">Every 30 minutes to once a week, your call.</span>
-              </span>
-            </li>
-            <li>
-              <span className="num">3</span>
-              <span>
-                <b>You get a plain-language email</b>
-                <span className="d">Only when it really changes, with the exact diff attached.</span>
-              </span>
-            </li>
-          </ol>
-        </div>
-
-        <div className="bento-card b-who">
-          <h3>Who it's for</h3>
-          <div className="examples">
-            <div className="ex">
-              <b>Family</b>
-              <span>Your child's school notices page. Term dates, closures, fee changes, straight to both parents.</span>
-            </div>
-            <div className="ex">
-              <b>Expats</b>
-              <span>Embassy appointment pages and visa rules. Know the day the requirements change.</span>
-            </div>
-            <div className="ex">
-              <b>Neighbours</b>
-              <span>The building or community announcements page, shared with the whole household.</span>
-            </div>
-            <div className="ex">
-              <b>Anyone</b>
-              <span>Email a link to your board's address and it starts watching. Reply with another link any time.</span>
-            </div>
+      <Reveal as="section" className="band b-who">
+        <span className="section-label">Four households</span>
+        <h3>Who it's for</h3>
+        <div className="examples">
+          <div className="ex">
+            <b>Family</b>
+            <span>Your child's school notices page. Term dates, closures, fee changes, straight to both parents.</span>
+          </div>
+          <div className="ex">
+            <b>Expats</b>
+            <span>Embassy appointment pages and visa rules. Know the day the requirements change.</span>
+          </div>
+          <div className="ex">
+            <b>Neighbours</b>
+            <span>The building or community announcements page, shared with the whole household.</span>
+          </div>
+          <div className="ex">
+            <b>Anyone</b>
+            <span>Email a link to your board's address and it starts watching. Reply with another link any time.</span>
           </div>
         </div>
+      </Reveal>
 
-        <div className="bento-card b-inside">
-          <h3>What's inside</h3>
+      <Reveal as="section" className="band b-inside">
+        <span className="section-label">Under the wing</span>
+        <h3>What's inside</h3>
+        <div className="ledger">
           <ul className="features">
             <li>
               <b>Firecrawl scraping</b>
@@ -331,39 +345,36 @@ function Landing({ route }: { route: Route }) {
               <span>Forward a link to your board address.</span>
             </li>
           </ul>
-        </div>
-
-        <div className="bento-card b-alert">
-          <h3>What lands in your inbox</h3>
-          <div className="mock">
-            <div className="from">Pigeon · just now</div>
-            <span className="chip i4">money, dates or availability</span>
-            <div className="subject">Springfield Primary — Notices</div>
-            <p className="body">
-              The summer term fee deadline moved forward to 14 June. A new line says late payments now carry a £25
-              charge.
-            </p>
-            <div className="lines">
-              <span className="plus">+3</span>
-              <span className="minus">−2</span>
-              <span className="hint">lines</span>
+          <div>
+            <h4 className="mock-title">What lands in your inbox</h4>
+            <div className="mock">
+              <div className="from">Pigeon · just now</div>
+              <span className="chip i4">money, dates or availability</span>
+              <div className="subject">Springfield Primary — Notices</div>
+              <p className="body">
+                The summer term fee deadline moved forward to 14 June. A new line says late payments now carry a £25
+                charge.
+              </p>
+              <div className="lines">
+                <span className="plus">+3</span>
+                <span className="minus">−2</span>
+                <span className="hint">lines</span>
+              </div>
             </div>
+            <h4 className="mock-title">Built on</h4>
+            <div className="sponsors">
+              <span>Convex</span>
+              <span>Firecrawl</span>
+              <span>AgentMail</span>
+              <span>OpenAI</span>
+            </div>
+            <p className="note">Realtime data, clean page capture, a real inbox per board, and plain-language summaries.</p>
           </div>
         </div>
-
-        <div className="bento-card b-stack">
-          <h3>Built on</h3>
-          <div className="sponsors">
-            <span>Convex</span>
-            <span>Firecrawl</span>
-            <span>AgentMail</span>
-            <span>OpenAI</span>
-          </div>
-          <p className="note">Realtime data, clean page capture, a real inbox per board, and plain-language summaries.</p>
-        </div>
-      </section>
+      </Reveal>
 
       <section className="faq">
+        <span className="section-label">Before you fly</span>
         <h3>Questions</h3>
         <div className="faq-list">
           <details>
@@ -688,6 +699,7 @@ function WatchRow({ w }: { w: WatchListItem }) {
           <span>checked {ago(w.lastCheckedAt)}</span>
           <span>{w.checkCount} checks</span>
           <span>{w.changeCount} changes</span>
+          {w.status === "pending" && <PulseDots label="checking" />}
           {w.status === "error" && <span className="error">{w.lastError}</span>}
           {w.focus && <span>focus: “{w.focus}”</span>}
         </div>
@@ -705,6 +717,7 @@ function WatchRow({ w }: { w: WatchListItem }) {
           className="btn small"
           onClick={() => {
             setErr(null);
+            flapPigeon();
             checkNow({ watchId: w._id }).catch((e) => setErr(e instanceof Error ? e.message : String(e)));
           }}
         >
@@ -923,6 +936,7 @@ function WatchPage({ watchId }: { watchId: Id<"watches"> }) {
                   className="btn small"
                   onClick={() => {
                     setErr(null);
+                    flapPigeon();
                     checkNow({ watchId }).catch((e) => setErr(e instanceof Error ? e.message : String(e)));
                   }}
                 >
