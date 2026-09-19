@@ -90,7 +90,13 @@ function importanceLabel(i: number | null | undefined): string {
 function Logo() {
   return (
     <svg viewBox="0 0 32 32" aria-hidden="true">
-      <circle cx="16" cy="16" r="15" fill="#1d4ed8" />
+      <defs>
+        <linearGradient id="pigeonLogo" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#8b7cff" />
+          <stop offset="100%" stopColor="#6d5dfc" />
+        </linearGradient>
+      </defs>
+      <circle cx="16" cy="16" r="15" fill="url(#pigeonLogo)" />
       <path d="M9 17c2-5 8-7 14-6-3 1-5 3-6 6-1 2-3 3-5 3l-1 3-1-1 1-3c-1-1-2-1-2-2z" fill="#fff" />
     </svg>
   );
@@ -105,7 +111,7 @@ export default function App() {
         <div className="page empty">Loading…</div>
       </AuthLoading>
       <Unauthenticated>
-        <TopBar />
+        <TopBar cta />
         <Landing route={route} />
       </Unauthenticated>
       <Authenticated>
@@ -119,10 +125,10 @@ export default function App() {
   );
 }
 
-function TopBar() {
+function TopBar({ cta = false }: { cta?: boolean }) {
   const user = useQuery(api.auth.currentUser);
   const boards = useQuery(api.boards.myBoards);
-  const { signOut } = useAuthActions();
+  const { signIn, signOut } = useAuthActions();
   const route = useRoute();
   const currentBoard = route.name === "board" ? route.boardId : undefined;
   return (
@@ -132,6 +138,11 @@ function TopBar() {
       </a>
       <span className="tagline">Watch any page. Get told when it really changes.</span>
       <span className="spacer" />
+      {cta && (
+        <button className="btn cta small" onClick={() => void signIn("anonymous")}>
+          Try it now, no sign-up
+        </button>
+      )}
       {user && boards && boards.length > 0 && (
         <select
           value={currentBoard ?? ""}
@@ -178,47 +189,214 @@ function Landing({ route }: { route: Route }) {
   };
 
   return (
-    <div className="page">
-      <section className="hero">
-        <h1>The pages you need to watch don't send newsletters.</h1>
-        <p>
-          School notice boards, embassy pages, community announcements, a clinic's schedule, a landlord's portal, a
-          government fee table. Pigeon checks them for you and emails you only when something meaningful changed,
-          explained in plain language, with the exact diff one click away.
-        </p>
-        <div className="actions">
-          <button className="btn primary" onClick={() => void guest()} disabled={busy}>
-            Try it now, no sign-up
-          </button>
-          <button className="btn" onClick={() => setMode("signIn")}>
-            Sign in with email
-          </button>
-        </div>
-        {route.name === "join" && (
-          <p className="hint" style={{ marginTop: 12 }}>
-            You have an invite. Sign in or continue as a guest and it will be applied.
+    <div className="page landing">
+      <section className="bento">
+        <div className="hero">
+          <span className="eyebrow">
+            <Logo /> a newsletter for pages that don't have one
+          </span>
+          <h1>Get an email when a page changes. Only when it matters.</h1>
+          <p className="lede">The pages you need to watch don't send newsletters.</p>
+          <p>
+            School notice boards, embassy pages, community announcements, a clinic's schedule, a landlord's portal, a
+            government fee table. Pigeon checks them and writes you in plain language, with the exact diff one click
+            away.
           </p>
-        )}
-        {error && <p className="error">{error}</p>}
-        <div className="examples">
-          <div className="ex">
-            <b>Family</b>
-            <span>Your child's school notices page. Term dates, closures, fee changes, straight to both parents.</span>
+          {route.name === "join" && (
+            <p className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
+              You have an invite. Sign in or continue as a guest and it will be applied.
+            </p>
+          )}
+          {error && <p className="error">{error}</p>}
+          <div className="actions">
+            <button className="btn cta" onClick={() => void guest()} disabled={busy}>
+              Try it now, no sign-up
+            </button>
+            <button className="btn onviolet" onClick={() => setMode("signIn")}>
+              Sign in with email
+            </button>
           </div>
-          <div className="ex">
-            <b>Expats</b>
-            <span>Embassy appointment pages and visa rules. Know the day the requirements change.</span>
+          <div className="demo">
+            <div className="demo-head">
+              <span className="demo-dots">
+                <i />
+                <i />
+                <i />
+              </span>
+              <span className="demo-title">My board</span>
+              <span className="demo-live">live</span>
+            </div>
+            <div className="demo-body">
+              <div className="demo-row">
+                <span className="dot ok" />
+                <span className="demo-page">
+                  <b>Springfield Primary — Notices</b>
+                  <span className="demo-url">springfield.sch.uk/notices</span>
+                </span>
+                <span className="demo-when">checked 12 min ago</span>
+              </div>
+              <div className="demo-card">
+                <div className="demo-card-head">
+                  <b>What changed</b>
+                  <span className="chip i4">money, dates or availability</span>
+                </div>
+                <p>
+                  The summer term fee deadline moved forward to 14 June. Late payments now carry a £25 charge.
+                </p>
+                <div className="demo-foot">
+                  <span className="plus">+3</span>
+                  <span className="minus">−2</span>
+                  <span className="demo-unit">lines</span>
+                  <span className="demo-link">see diff</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="ex">
-            <b>Neighbours</b>
-            <span>The building or community announcements page, shared with the whole household.</span>
+        </div>
+
+        <div className="bento-card b-how">
+          <h3>How it works</h3>
+          <ol className="steps">
+            <li>
+              <span className="num">1</span>
+              <span>
+                <b>Paste a link</b>
+                <span className="d">Any public page. No account needed to try it.</span>
+              </span>
+            </li>
+            <li>
+              <span className="num">2</span>
+              <span>
+                <b>We check on a schedule</b>
+                <span className="d">Every 30 minutes to once a week, your call.</span>
+              </span>
+            </li>
+            <li>
+              <span className="num">3</span>
+              <span>
+                <b>You get a plain-language email</b>
+                <span className="d">Only when it really changes, with the exact diff attached.</span>
+              </span>
+            </li>
+          </ol>
+        </div>
+
+        <div className="bento-card b-who">
+          <h3>Who it's for</h3>
+          <div className="examples">
+            <div className="ex">
+              <b>Family</b>
+              <span>Your child's school notices page. Term dates, closures, fee changes, straight to both parents.</span>
+            </div>
+            <div className="ex">
+              <b>Expats</b>
+              <span>Embassy appointment pages and visa rules. Know the day the requirements change.</span>
+            </div>
+            <div className="ex">
+              <b>Neighbours</b>
+              <span>The building or community announcements page, shared with the whole household.</span>
+            </div>
+            <div className="ex">
+              <b>Anyone</b>
+              <span>Email a link to your board's address and it starts watching. Reply with another link any time.</span>
+            </div>
           </div>
-          <div className="ex">
-            <b>Anyone</b>
-            <span>Email a link to your board's address and it starts watching. Reply with another link any time.</span>
+        </div>
+
+        <div className="bento-card b-inside">
+          <h3>What's inside</h3>
+          <ul className="features">
+            <li>
+              <b>Firecrawl scraping</b>
+              <span>Clean text from any public page.</span>
+            </li>
+            <li>
+              <b>Noise filtering</b>
+              <span>Cosmetic edits stay silent.</span>
+            </li>
+            <li>
+              <b>Exact diff</b>
+              <span>Every line added and removed.</span>
+            </li>
+            <li>
+              <b>Model summary</b>
+              <span>Two sentences, plain language.</span>
+            </li>
+            <li>
+              <b>Shared boards</b>
+              <span>One invite link for the household.</span>
+            </li>
+            <li>
+              <b>Add by email</b>
+              <span>Forward a link to your board address.</span>
+            </li>
+          </ul>
+        </div>
+
+        <div className="bento-card b-alert">
+          <h3>What lands in your inbox</h3>
+          <div className="mock">
+            <div className="from">Pigeon · just now</div>
+            <span className="chip i4">money, dates or availability</span>
+            <div className="subject">Springfield Primary — Notices</div>
+            <p className="body">
+              The summer term fee deadline moved forward to 14 June. A new line says late payments now carry a £25
+              charge.
+            </p>
+            <div className="lines">
+              <span className="plus">+3</span>
+              <span className="minus">−2</span>
+              <span className="hint">lines</span>
+            </div>
           </div>
+        </div>
+
+        <div className="bento-card b-stack">
+          <h3>Built on</h3>
+          <div className="sponsors">
+            <span>Convex</span>
+            <span>Firecrawl</span>
+            <span>AgentMail</span>
+            <span>OpenAI</span>
+          </div>
+          <p className="note">Realtime data, clean page capture, a real inbox per board, and plain-language summaries.</p>
         </div>
       </section>
+
+      <section className="faq">
+        <h3>Questions</h3>
+        <div className="faq-list">
+          <details>
+            <summary>Which pages work?</summary>
+            <p>Any public page you can open without logging in. Text pages work best: notices, schedules, fee tables, rules.</p>
+          </details>
+          <details>
+            <summary>How often does it check?</summary>
+            <p>From every 30 minutes to once a week. You choose per page, and you can change it later.</p>
+          </details>
+          <details>
+            <summary>Will I get spammed by tiny changes?</summary>
+            <p>No. Every change is scored. Cosmetic edits stay silent. You hear about money, dates and availability.</p>
+          </details>
+          <details>
+            <summary>What does the email look like?</summary>
+            <p>The page name, an importance chip, two sentences on what changed, and a link to the exact diff.</p>
+          </details>
+          <details>
+            <summary>Can my family or team share it?</summary>
+            <p>Yes. A board is shared. Send the invite link and everyone on it gets the same alerts.</p>
+          </details>
+          <details>
+            <summary>Is it free?</summary>
+            <p>Yes, free to use right now. No card, no trial timer.</p>
+          </details>
+          <details>
+            <summary>What does it cost me to try?</summary>
+            <p>One click and one link. Guest mode gives you a working board with no sign-up.</p>
+          </details>
+        </div>
+      </section>
+
       {mode && <EmailAuth mode={mode} setMode={setMode} />}
     </div>
   );

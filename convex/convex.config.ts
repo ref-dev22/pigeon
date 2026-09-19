@@ -7,9 +7,13 @@ import agentmail from "@agentmail/convex/convex.config";
 // Static hosting runs in "app-owned" mode: the frontend is served from the
 // convex.site domain by routes we register in convex/http.ts, so our own
 // root routes (Convex Auth discovery, the AgentMail webhook) keep working.
+//
+// Components do not inherit the deployment's env vars; each key a component
+// needs is declared here and passed by reference.
 const app = defineApp({
   env: {
     FIRECRAWL_API_KEY: v.string(),
+    AGENTMAIL_API_KEY: v.string(),
   },
 });
 
@@ -17,6 +21,8 @@ app.use(staticHosting);
 app.use(firecrawl, {
   env: { FIRECRAWL_API_KEY: app.env.FIRECRAWL_API_KEY },
 });
-app.use(agentmail);
+app.use(agentmail, {
+  env: { AGENTMAIL_API_KEY: app.env.AGENTMAIL_API_KEY },
+});
 
 export default app;
