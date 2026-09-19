@@ -107,7 +107,7 @@ export const sendChangeEmail = internalMutation({
       "<p style=\"font-size:12px;color:#6b7280;margin:0\">You are on the board “" + escapeHtml(board.name) + "”. Reply with a link to start watching another page.</p>" +
       "</div>";
     try {
-      await agentmail.sendMessage(ctx, inboxId, {
+      const outboundId = await agentmail.sendMessage(ctx, inboxId, {
         to: recipients,
         subject: title.slice(0, 70) + " changed: " + (change.summary ?? "").slice(0, 60).replace(/\s+\S*$/, ""),
         text,
@@ -115,8 +115,16 @@ export const sendChangeEmail = internalMutation({
         labels: ["pigeon", "change"],
         headers: { "X-Pigeon-Change": String(changeId) },
       });
-      // "queued" is honest: AgentMail sends asynchronously with retries.
-      await ctx.db.patch(changeId, { emailStatus: "queued", emailError: undefined });
+      // "queued" is honest: AgentMail sends asynchronously with retries. A
+      // follow-up syncs the real status once the send pool has run.
+      await ctx.db.patch(changeId, {
+        emailStatus: "queued",
+        emailError: undefined,
+        emailOutboundId: String(outboundId),
+      });
+      for (const delay of [20_000, 90_000, 5 * 60_000]) {
+        await ctx.scheduler.runAfter(delay, internal.email.syncEmailStatus, { changeId });
+      }
       await ctx.db.insert("events", {
         boardId: change.boardId,
         kind: "email.sent",
@@ -129,6 +137,26 @@ export const sendChangeEmail = internalMutation({
       await ctx.db.patch(changeId, {
         emailStatus: "failed",
         emailError: e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300),
+      });
+    }
+  },
+});
+
+// Pull the real send status from the AgentMail component.
+export const syncEmailStatus = internalMutation({
+  args: { changeId: v.id("changes") },
+  handler: async (ctx, { changeId }) => {
+    const change = await ctx.db.get(changeId);
+    if (!change?.emailOutboundId) return;
+    if (change.emailStatus !== "queued") return;
+    const s = await agentmail.status(ctx, change.emailOutboundId as never);
+    if (!s) return;
+    if (s.status === "sent" || s.status === "delivered") {
+      await ctx.db.patch(changeId, { emailStatus: "sent", emailError: undefined });
+    } else if (s.status === "failed" || s.status === "bounced" || s.status === "rejected") {
+      await ctx.db.patch(changeId, {
+        emailStatus: "failed",
+        emailError: (s.errorMessage ?? s.status).slice(0, 300),
       });
     }
   },

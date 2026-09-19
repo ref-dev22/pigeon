@@ -107,6 +107,8 @@ export default defineSchema({
       v.literal("failed"),
     ),
     emailError: v.optional(v.string()),
+    // AgentMail component outbound id, used to sync the real send status.
+    emailOutboundId: v.optional(v.string()),
     // Members who marked this change as read.
     readBy: v.array(v.id("users")),
   })
