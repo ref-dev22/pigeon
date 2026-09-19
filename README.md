@@ -8,6 +8,8 @@ Pigeon watches any web page on a schedule and emails you only when something mea
 
 Built for the [Convex All Gas Hackathon](https://www.convex.dev/hackathons/all-gas), September 2026.
 
+**Live:** https://marvelous-dinosaur-465.convex.site · **Demo video:** https://youtu.be/i0d-cCDS9_A
+
 ## What it does
 
 - **Watch a page** by pasting a URL, choosing how often to check (30 minutes to weekly), and optionally saying what you care about ("fees or deadlines").
