@@ -4,7 +4,7 @@
 
 The pages people actually need to watch rarely have an RSS feed or a mailing list: a school's notice board, an embassy's appointment page, the building's community announcements, a clinic's schedule, a government fee table, a landlord's portal. People reload them, or miss the change.
 
-Pigeon watches any web page on a schedule and emails you only when something meaningful changed, explained in two plain sentences, with the exact diff one click away. Households and small teams share a board, and every board has its own email address: send it a link and it starts watching.
+Pigeon watches any web page on a schedule and emails you only when something meaningful changed, explained in two plain sentences, with the exact diff one click away. Households and small teams share a board, and the board has an email address: send it a link from the address you saved for alerts and it starts watching.
 
 Built for the [Convex All Gas Hackathon](https://www.convex.dev/hackathons/all-gas), September 2026.
 
@@ -17,7 +17,7 @@ Built for the [Convex All Gas Hackathon](https://www.convex.dev/hackathons/all-g
 - **Plain-language summary and an importance score** from 1 (cosmetic) to 5 (act now). A model writes it when a key is configured; a heuristic fallback still produces a useful line when it is not.
 - **Exact diff** of the page text, colour-coded, for every change.
 - **Email alerts** go to every member who opted in. Cosmetic changes are logged but not emailed.
-- **Add pages by email.** Each board gets its own inbox. Email it a link (optionally with "hourly" or "daily" in the text) and the page is added; Pigeon replies with what it is now watching.
+- **Add pages by email.** Email the board address a link (optionally with "hourly" or "daily" in the text) from the email you saved for alerts. Pigeon matches the sender to your board(s), adds the page, and replies with what it is now watching. Mail that fails SPF or DKIM is ignored.
 - **Shared boards** with invite links, live-updating for everyone at once.
 - **Guest mode** so a judge can open the live URL and use the product immediately, plus email and password accounts for people who want to keep a board.
 
@@ -27,8 +27,9 @@ Built for the [Convex All Gas Hackathon](https://www.convex.dev/hackathons/all-g
 |---|---|
 | **Convex** | Database, schema with indexes, queries and mutations, live updates on every screen, scheduled functions, a cron that picks up due pages, Convex Auth (anonymous and password), three registered components (Firecrawl, AgentMail, static hosting), and the frontend served from `convex.site`. |
 | **Firecrawl** (`@firecrawl/firecrawl-convex`) | Every check scrapes the page to clean markdown with `onlyMainContent`, and asks for Firecrawl's own `changeTracking` verdict alongside Pigeon's diff. |
-| **AgentMail** (`@agentmail/convex`) | One inbox per board. Sends the change alerts, receives links through the signed webhook, and replies to the sender. |
-| **OpenAI-compatible model** | Turns the unified diff into the summary and importance score. Any OpenAI-compatible endpoint works through `OPENAI_BASE_URL`. |
+| **AgentMail** (`@agentmail/convex`) | One inbox for the deployment. Sends the change alerts, receives links through the signed webhook, routes them to the sender's board(s), and replies. |
+| **OpenAI model** (`openai/gpt-5.6-luna` via OpenRouter) | Turns the unified diff into the two-sentence summary. Any OpenAI-compatible endpoint works through `OPENAI_BASE_URL`. |
+| **Decision model** (`typesafe/jev-1.13` via OpenRouter's decisions endpoint) | Returns typed judgments with probabilities: importance 1 to 5, whether the change deserves an email, and whether it touches the reader's stated focus. |
 
 ## Run it locally
 
@@ -43,7 +44,11 @@ Set the backend environment variables on the deployment:
 npx convex env set FIRECRAWL_API_KEY fc-...        # or fc-local-placeholder to use a plain fetch in local dev
 npx convex env set AGENTMAIL_API_KEY am_...        # optional locally; required for email
 npx convex env set AGENTMAIL_WEBHOOK_SECRET whsec_...
+npx convex env set AGENTMAIL_INBOX_ID you@agentmail.to   # the inbox alerts are sent from and links are mailed to
 npx convex env set OPENAI_API_KEY sk-...           # optional; heuristic summaries without it
+npx convex env set OPENAI_BASE_URL https://openrouter.ai/api/v1   # optional; any OpenAI-compatible endpoint
+npx convex env set OPENAI_MODEL openai/gpt-5.6-luna
+npx convex env set DECISION_MODEL typesafe/jev-1.13     # optional; importance decisions via OpenRouter
 npx convex env set SITE_URL http://localhost:5183
 ```
 
@@ -72,8 +77,8 @@ convex/
   boards.ts        create/join/rename boards, notification settings, activity feed
   watches.ts       add/pause/remove pages, changes feed, internal pipeline mutations
   checks.ts        the check: scrape, normalise, hash, diff, summarise, notify
-  summarize.ts     model summary with heuristic fallback
-  email.ts         board inbox creation, alert sending, inbound link handling
+  summarize.ts     model summary, decision-model importance, heuristic fallback
+  email.ts         alert sending, inbound link routing by sender, auto-replies
   crons.ts         every 5 minutes: run due checks
   auth.ts, http.ts Convex Auth, AgentMail webhook, static routes
 src/
