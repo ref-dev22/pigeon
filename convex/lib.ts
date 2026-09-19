@@ -84,9 +84,9 @@ export function stabilize(markdown: string): string {
   return markdown
     .split("\n")
     .map((line) =>
+      // Times and dates are kept: "closes at 20:00" is real content. Only
+      // machine noise is normalised: big counters, long query strings, hashes.
       line
-        .replace(/\b\d{1,2}:\d{2}(:\d{2})?\s?(AM|PM|am|pm)?\b/g, "<time>")
-        .replace(/\b(19|20)\d{2}-\d{2}-\d{2}(T[\d:.Z+-]+)?\b/g, "<date>")
         .replace(/\b\d{1,3}(,\d{3})+\b/g, "<n>")
         .replace(/\?[A-Za-z0-9_=&%.-]{20,}/g, "?<q>")
         .replace(/[A-Fa-f0-9]{24,}/g, "<hex>")
