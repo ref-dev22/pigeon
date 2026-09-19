@@ -57,8 +57,8 @@ export const getBoard = query({
       _id: board._id,
       name: board.name,
       inviteCode: board.inviteCode,
-      inboxAddress: board.inboxAddress ?? null,
-      inboxReady: !!board.inboxId,
+      inboxAddress: board.inboxAddress ?? process.env.AGENTMAIL_INBOX_ID ?? null,
+      inboxReady: !!(board.inboxId ?? process.env.AGENTMAIL_INBOX_ID),
       createdAt: board.createdAt,
       me: {
         role: membership.role,

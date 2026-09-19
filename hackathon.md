@@ -3,10 +3,10 @@
 - **Project:** Pigeon
 - **Event:** Convex All Gas Hackathon
 - **What it does:** Watches any web page on a schedule and emails a shared board a plain-language summary when the page really changes, with the exact diff one click away; boards can also be fed links by email.
-- **Live app:** not deployed
-- **Repo:** none
+- **Live app:** https://marvelous-dinosaur-465.convex.site
+- **Repo:** https://github.com/ref-dev22/pigeon
 - **Frontend:** Convex static hosting
-- **Convex deployment:** not deployed
+- **Convex deployment:** https://marvelous-dinosaur-465.convex.cloud
 - **Components:** @convex-dev/static-hosting, @firecrawl/firecrawl-convex, @agentmail/convex
 - **Convex features:** schema, tables, indexes, queries, mutations, actions, HTTP actions, crons, scheduled functions, realtime queries
 - **Auth:** Convex Auth

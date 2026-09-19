@@ -2,10 +2,13 @@ import { v } from "convex/values";
 import { AgentMail } from "@agentmail/convex";
 import { components, internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { clampInterval, DEFAULT_INTERVAL, extractUrls } from "./lib";
 
-// Every board gets its own AgentMail inbox. It sends change alerts, and it
-// accepts links: anyone who emails a URL to the board address starts a watch.
+// Pigeon uses one AgentMail inbox for the whole deployment
+// (AGENTMAIL_INBOX_ID). It sends every change alert, and it accepts links:
+// anyone who emails a URL to that address from the email they saved for
+// alerts gets the page added to their board(s), with a reply confirming it.
 export const agentmail = new AgentMail(components.agentmail, {
   onMessageReceived: internal.email.onMessageReceived,
 });
@@ -13,30 +16,17 @@ export const agentmail = new AgentMail(components.agentmail, {
 export const ensureInbox = internalAction({
   args: { boardId: v.id("boards") },
   handler: async (ctx, { boardId }) => {
-    if (!process.env.AGENTMAIL_API_KEY) {
-      console.warn("AGENTMAIL_API_KEY is not set; board inbox skipped.");
+    const inboxId = process.env.AGENTMAIL_INBOX_ID;
+    if (!process.env.AGENTMAIL_API_KEY || !inboxId) {
+      console.warn("AGENTMAIL_API_KEY or AGENTMAIL_INBOX_ID is not set; email disabled.");
       await ctx.runMutation(internal.boards.logEvent, {
         boardId,
         kind: "inbox.unavailable",
         message:
-          "Email is not configured on this deployment yet (AGENTMAIL_API_KEY missing), so this board has no inbox and sends no alerts.",
+          "Email is not configured on this deployment yet, so this board has no inbox and sends no alerts.",
       });
       return;
     }
-    const slug = "pigeon-" + boardId.toString().slice(-8).toLowerCase();
-    let inbox: { inbox_id?: string; inboxId?: string; display_name?: string } | null = null;
-    try {
-      inbox = await agentmail.createInbox(ctx, {
-        username: slug,
-        displayName: "Pigeon board",
-        clientId: "pigeon-board-" + boardId,
-      });
-    } catch (e) {
-      console.warn("createInbox failed", String(e));
-      return;
-    }
-    const inboxId = (inbox?.inbox_id ?? inbox?.inboxId) as string | undefined;
-    if (!inboxId) return;
     await ctx.runMutation(internal.boards.setInbox, {
       boardId,
       inboxId,
@@ -54,7 +44,8 @@ export const sendChangeEmail = internalMutation({
     const watch = await ctx.db.get(change.watchId);
     const board = await ctx.db.get(change.boardId);
     if (!watch || !board) return;
-    if (!board.inboxId) {
+    const inboxId = board.inboxId ?? process.env.AGENTMAIL_INBOX_ID;
+    if (!inboxId) {
       await ctx.db.patch(changeId, {
         emailStatus: "skipped",
         emailError: "Board has no email inbox yet.",
@@ -111,7 +102,7 @@ export const sendChangeEmail = internalMutation({
       "<p style=\"font-size:12px;color:#6b7280;margin:0\">You are on the board “" + escapeHtml(board.name) + "”. Reply with a link to start watching another page.</p>" +
       "</div>";
     try {
-      await agentmail.sendMessage(ctx, board.inboxId, {
+      await agentmail.sendMessage(ctx, inboxId, {
         to: recipients,
         subject: "Changed: " + title.slice(0, 80),
         text,
@@ -136,29 +127,57 @@ export const sendChangeEmail = internalMutation({
   },
 });
 
-// Inbound mail: someone emailed the board. Pull out links and start watching.
+// Inbound mail: someone emailed the shared inbox. Find their board(s) by the
+// sender address, pull out links and start watching.
 export const onMessageReceived = internalMutation({
   args: { message: v.any(), thread: v.any(), eventId: v.string() },
   handler: async (ctx, { message }) => {
     const msg = message as {
       inbox_id?: string;
       message_id?: string;
-      from?: string;
+      from?: string | { email?: string; address?: string };
       subject?: string;
       text?: string;
       html?: string;
     };
-    if (!msg.inbox_id) return;
-    const board = await ctx.db
-      .query("boards")
-      .withIndex("by_inboxId", (q) => q.eq("inboxId", msg.inbox_id))
-      .unique();
-    if (!board) return;
+    const inboxId = msg.inbox_id ?? process.env.AGENTMAIL_INBOX_ID;
+    if (!inboxId) return;
+    const sender = parseAddress(msg.from);
+
+    // Boards this sender belongs to, matched on the alert email they saved,
+    // or on the account email for password users.
+    const boards: Doc<"boards">[] = [];
+    if (sender) {
+      const byNotify = await ctx.db
+        .query("memberships")
+        .withIndex("by_notifyEmail", (q) => q.eq("notifyEmail", sender))
+        .collect();
+      const users = await ctx.db
+        .query("users")
+        .withIndex("email", (q) => q.eq("email", sender))
+        .collect();
+      const byUser = [];
+      for (const u of users) {
+        byUser.push(
+          ...(await ctx.db
+            .query("memberships")
+            .withIndex("by_user", (q) => q.eq("userId", u._id))
+            .collect()),
+        );
+      }
+      const seen = new Set<string>();
+      for (const m of [...byNotify, ...byUser]) {
+        if (seen.has(m.boardId)) continue;
+        seen.add(m.boardId);
+        const b = await ctx.db.get(m.boardId);
+        if (b) boards.push(b);
+      }
+    }
 
     const body = (msg.text ?? "") + "\n" + stripTags(msg.html ?? "") + "\n" + (msg.subject ?? "");
-    const urls = extractUrls(body).filter((u) => !/mailto:|unsubscribe|agentmail/i.test(u));
+    const urls = extractUrls(body).filter((u) => !/mailto:|unsubscribe|agentmail|convex\.site/i.test(u));
 
-    // Optional interval hint in the subject or body, e.g. "every 1h" / "daily".
+    // Optional interval hint in the subject or body, e.g. "hourly" / "daily".
     let interval = DEFAULT_INTERVAL;
     const lower = body.toLowerCase();
     if (/\b(hourly|every hour|every 1h|1h)\b/.test(lower)) interval = 60;
@@ -167,81 +186,104 @@ export const onMessageReceived = internalMutation({
     else if (/\bevery 30 ?min/.test(lower)) interval = 30;
     interval = clampInterval(interval);
 
+    // If the subject names one of the sender's boards, use only that one.
+    const subjectLower = (msg.subject ?? "").toLowerCase();
+    const named = boards.filter((b) => subjectLower.includes(b.name.toLowerCase()));
+    const targets = named.length ? named : boards;
+
     const added: string[] = [];
     const already: string[] = [];
-    for (const url of urls.slice(0, 5)) {
-      const existing = await ctx.db
-        .query("watches")
-        .withIndex("by_board_url", (q) => q.eq("boardId", board._id).eq("url", url))
-        .unique();
-      if (existing) {
-        already.push(url);
-        continue;
+    for (const board of targets) {
+      for (const url of urls.slice(0, 5)) {
+        const existing = await ctx.db
+          .query("watches")
+          .withIndex("by_board_url", (q) => q.eq("boardId", board._id).eq("url", url))
+          .unique();
+        if (existing) {
+          if (!already.includes(url)) already.push(url);
+          continue;
+        }
+        const now = Date.now();
+        const watchId = await ctx.db.insert("watches", {
+          boardId: board._id,
+          url,
+          intervalMinutes: interval,
+          source: "email",
+          status: "pending",
+          nextCheckAt: now,
+          checkCount: 0,
+          changeCount: 0,
+          createdAt: now,
+        });
+        await ctx.db.insert("events", {
+          boardId: board._id,
+          kind: "watch.added",
+          message: "A link arrived by email; now watching " + url,
+          watchId,
+          at: now,
+        });
+        await ctx.scheduler.runAfter(0, internal.checks.checkWatch, { watchId });
+        if (!added.includes(url)) added.push(url);
       }
-      const now = Date.now();
-      const watchId = await ctx.db.insert("watches", {
-        boardId: board._id,
-        url,
-        intervalMinutes: interval,
-        source: "email",
-        status: "pending",
-        nextCheckAt: now,
-        checkCount: 0,
-        changeCount: 0,
-        createdAt: now,
-      });
       await ctx.db.insert("events", {
         boardId: board._id,
-        kind: "watch.added",
-        message: "A link arrived by email; now watching " + url,
-        watchId,
-        at: now,
+        kind: "email.received",
+        message:
+          "Email received" +
+          (added.length ? ": " + added.length + " new page(s) added" : ": no new links found") +
+          ".",
+        at: Date.now(),
       });
-      await ctx.scheduler.runAfter(0, internal.checks.checkWatch, { watchId });
-      added.push(url);
     }
 
-    await ctx.db.insert("events", {
-      boardId: board._id,
-      kind: "email.received",
-      message:
-        "Email received" +
-        (added.length ? ": " + added.length + " new page(s) added" : ": no new links found") +
-        ".",
-      at: Date.now(),
-    });
-
     // Reply so the sender knows what happened.
-    if (msg.message_id && board.inboxId) {
-      const lines: string[] = [];
+    if (!msg.message_id) return;
+    const lines: string[] = [];
+    if (!sender || boards.length === 0) {
+      lines.push(
+        "Thanks for writing to Pigeon. I could not match your address to a board.",
+        "Open your board, put this email address in \"Where should your alerts go?\", save, and send the link again.",
+      );
+    } else if (urls.length === 0) {
+      lines.push(
+        "I did not find a web link in your message. Send me a URL (starting with http) and I will watch that page for changes.",
+      );
+    } else {
       if (added.length) {
         lines.push("Got it. Now watching:");
         for (const u of added) lines.push("  • " + u);
-        lines.push("");
         lines.push(
+          "",
           "I check every " + humanInterval(interval) + " and email the board only when something meaningful changes.",
         );
       }
-      if (already.length) {
-        lines.push("Already watching: " + already.join(", "));
-      }
-      if (!added.length && !already.length) {
-        lines.push(
-          "I did not find a web link in your message. Send me a URL (starting with http) and I will watch that page for changes.",
-        );
-      }
-      lines.push("", "— Pigeon, for the board “" + board.name + "”");
-      try {
-        await agentmail.replyToMessage(ctx, board.inboxId, msg.message_id, {
-          text: lines.join("\n"),
-          labels: ["pigeon", "auto-reply"],
-        });
-      } catch (e) {
-        console.warn("reply failed", String(e));
-      }
+      if (already.length) lines.push("Already watching: " + already.join(", "));
+      lines.push("", "Board" + (targets.length > 1 ? "s" : "") + ": " + targets.map((b) => b.name).join(", "));
+    }
+    lines.push("", "— Pigeon");
+    try {
+      await agentmail.replyToMessage(ctx, inboxId, msg.message_id, {
+        text: lines.join("\n"),
+        labels: ["pigeon", "auto-reply"],
+      });
+    } catch (e) {
+      console.warn("reply failed", String(e));
     }
   },
 });
+
+function parseAddress(from: unknown): string | null {
+  if (!from) return null;
+  if (typeof from === "object") {
+    const o = from as { email?: string; address?: string };
+    const s = o.email ?? o.address;
+    return s ? s.trim().toLowerCase() : null;
+  }
+  const s = String(from);
+  const m = /<([^>]+)>/.exec(s);
+  const addr = (m ? m[1] : s).trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr) ? addr : null;
+}
 
 function stripTags(html: string): string {
   return html

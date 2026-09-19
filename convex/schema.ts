@@ -30,7 +30,8 @@ export default defineSchema({
   })
     .index("by_board", ["boardId"])
     .index("by_user", ["userId"])
-    .index("by_board_user", ["boardId", "userId"]),
+    .index("by_board_user", ["boardId", "userId"])
+    .index("by_notifyEmail", ["notifyEmail"]),
 
   // A watched page.
   watches: defineTable({
