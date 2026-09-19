@@ -1,4 +1,5 @@
 import { httpRouter } from "convex/server";
+import { registerStaticRoutes } from "@convex-dev/static-hosting";
 import { httpAction } from "./_generated/server";
 import { auth } from "./auth";
 import { components } from "./_generated/api";
@@ -6,11 +7,11 @@ import { AgentMail } from "@agentmail/convex";
 
 const http = httpRouter();
 
-// Convex Auth routes (served under /api because of httpPrefix in convex.config.ts).
+// Convex Auth: sign-in endpoints and OpenID discovery at the root.
 auth.addHttpRoutes(http);
 
 // AgentMail delivers inbound mail here. Register
-// https://<deployment>.convex.site/api/agentmail/webhook in the AgentMail dashboard.
+// https://<deployment>.convex.site/agentmail/webhook in the AgentMail dashboard.
 const agentmail = new AgentMail(components.agentmail);
 http.route({
   path: "/agentmail/webhook",
@@ -21,5 +22,9 @@ http.route({
     agentmail.handleWebhook(ctx as unknown as Parameters<typeof agentmail.handleWebhook>[0], req),
   ),
 });
+
+// Everything else: the built frontend, served from Convex storage with an
+// index.html fallback for client-side routes.
+registerStaticRoutes(http, components.staticHosting);
 
 export default http;

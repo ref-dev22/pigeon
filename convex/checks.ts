@@ -35,16 +35,18 @@ export const checkWatch = internalAction({
     //    tracking runs alongside our diff so the verdicts can be compared.
     let doc;
     try {
-      doc = await firecrawl.scrape(ctx, watch.url, {
-        formats: [
-          "markdown",
-          { type: "changeTracking", modes: ["git-diff"], tag: "pigeon-" + watch.boardId },
-        ],
-        onlyMainContent: true,
-        blockAds: true,
-        removeBase64Images: true,
-        timeout: 45_000,
-      });
+      doc = isLocalPlaceholderKey()
+        ? await localFetchFallback(watch.url)
+        : await firecrawl.scrape(ctx, watch.url, {
+            formats: [
+              "markdown",
+              { type: "changeTracking", modes: ["git-diff"], tag: "pigeon-" + watch.boardId },
+            ],
+            onlyMainContent: true,
+            blockAds: true,
+            removeBase64Images: true,
+            timeout: 45_000,
+          });
     } catch (e) {
       await ctx.runMutation(internal.watches.finishCheck, {
         watchId,
@@ -152,6 +154,51 @@ export const checkWatch = internalAction({
     await ctx.runMutation(internal.email.sendChangeEmail, { changeId });
   },
 });
+
+// Local development only. When the Firecrawl key is the documented
+// placeholder, fetch the page directly and reduce the HTML to text so the
+// diff, summary and email path can be exercised without an account.
+// Production always goes through Firecrawl.
+function isLocalPlaceholderKey(): boolean {
+  return process.env.FIRECRAWL_API_KEY === "fc-local-placeholder";
+}
+
+async function localFetchFallback(url: string): Promise<{
+  markdown?: string;
+  changeTracking?: Record<string, unknown>;
+  metadata?: { title?: string; statusCode?: number; error?: string };
+}> {
+  const res = await fetch(url, {
+    headers: { "user-agent": "Mozilla/5.0 (compatible; Pigeon/0.1 local dev)" },
+    redirect: "follow",
+  });
+  const html = await res.text();
+  const title = (/<title[^>]*>([^<]*)<\/title>/i.exec(html)?.[1] ?? "").trim();
+  const body = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(h[1-6])[^>]*>/gi, "\n\n# ")
+    .replace(/<\/(p|div|li|tr|h[1-6]|section|article|header|footer|br)[^>]*>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "- ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .split("\n")
+    .map((l) => l.replace(/[ \t]+/g, " ").trim())
+    .filter((l) => l.length > 0)
+    .join("\n");
+  return {
+    markdown: body,
+    changeTracking: { changeStatus: "unknown", source: "local-fallback" },
+    metadata: { title, statusCode: res.status, error: res.ok ? undefined : "HTTP " + res.status },
+  };
+}
 
 function pickTitle(t: unknown, url: string): string {
   const s = typeof t === "string" ? t.trim() : "";

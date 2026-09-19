@@ -347,6 +347,8 @@ function BoardPage({ boardId }: { boardId: Id<"boards"> }) {
             {" "}
             · board email: <code>{board.inboxAddress}</code>
           </>
+        ) : Date.now() - board.createdAt > 60_000 ? (
+          <> · board email: not available on this deployment</>
         ) : (
           <> · board email: setting up…</>
         )}

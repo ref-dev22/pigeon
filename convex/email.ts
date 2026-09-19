@@ -15,6 +15,12 @@ export const ensureInbox = internalAction({
   handler: async (ctx, { boardId }) => {
     if (!process.env.AGENTMAIL_API_KEY) {
       console.warn("AGENTMAIL_API_KEY is not set; board inbox skipped.");
+      await ctx.runMutation(internal.boards.logEvent, {
+        boardId,
+        kind: "inbox.unavailable",
+        message:
+          "Email is not configured on this deployment yet (AGENTMAIL_API_KEY missing), so this board has no inbox and sends no alerts.",
+      });
       return;
     }
     const slug = "pigeon-" + boardId.toString().slice(-8).toLowerCase();

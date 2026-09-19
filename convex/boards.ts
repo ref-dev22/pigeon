@@ -176,6 +176,13 @@ export const listEvents = query({
   },
 });
 
+export const logEvent = internalMutation({
+  args: { boardId: v.id("boards"), kind: v.string(), message: v.string() },
+  handler: async (ctx, { boardId, kind, message }) => {
+    await ctx.db.insert("events", { boardId, kind, message, at: Date.now() });
+  },
+});
+
 export const setInbox = internalMutation({
   args: { boardId: v.id("boards"), inboxId: v.string(), inboxAddress: v.string() },
   handler: async (ctx, { boardId, inboxId, inboxAddress }) => {
