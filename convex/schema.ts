@@ -52,6 +52,8 @@ export default defineSchema({
       v.literal("paused"),
     ),
     lastError: v.optional(v.string()),
+    // Set while a check is running so overlapping triggers do not double-scrape.
+    checkingSince: v.optional(v.number()),
     lastCheckedAt: v.optional(v.number()),
     nextCheckAt: v.number(),
     lastChangedAt: v.optional(v.number()),
@@ -99,6 +101,7 @@ export default defineSchema({
     detectedAt: v.number(),
     emailStatus: v.union(
       v.literal("pending"),
+      v.literal("queued"),
       v.literal("sent"),
       v.literal("skipped"),
       v.literal("failed"),

@@ -30,6 +30,8 @@ export const checkWatch = internalAction({
     if (!loaded) return;
     const { watch, latest } = loaded;
     if (watch.status === "paused") return;
+    const claimed = await ctx.runMutation(internal.watches.claimCheck, { watchId });
+    if (!claimed) return;
 
     // 1. Fetch the page as markdown through Firecrawl. Firecrawl's own change
     //    tracking runs alongside our diff so the verdicts can be compared.
@@ -141,10 +143,14 @@ export const checkWatch = internalAction({
     });
     if (!changeId) return;
 
-    // 5. Explain the change in plain language, then tell the board.
+    // 5. Explain the change in plain language, then tell the board. The
+    //    heuristic runs first; the model is only paid for when the change is
+    //    more than cosmetic.
+    const quick = heuristicSummary(diff, watch.focus);
     const summary =
-      (await modelSummary({ diff, title, url: watch.url, focus: watch.focus })) ??
-      heuristicSummary(diff, watch.focus);
+      quick.importance <= 1 && addedLines + removedLines <= 2
+        ? quick
+        : (await modelSummary({ diff, title, url: watch.url, focus: watch.focus })) ?? quick;
     await ctx.runMutation(internal.watches.setSummary, {
       changeId,
       summary: summary.summary,

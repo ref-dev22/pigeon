@@ -74,6 +74,13 @@ export const createBoard = mutation({
   args: { name: v.string() },
   handler: async (ctx, { name }) => {
     const userId = await requireUser(ctx);
+    const mine = await ctx.db
+      .query("memberships")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    if (mine.filter((m) => m.role === "owner").length >= 5) {
+      throw new Error("You already own five boards. Rename or reuse one.");
+    }
     const trimmed = name.trim().slice(0, 60) || "My board";
     const boardId = await ctx.db.insert("boards", {
       name: trimmed,
@@ -153,7 +160,7 @@ export const updateNotifications = mutation({
   },
   handler: async (ctx, { boardId, notify, notifyEmail }) => {
     const { membership } = await requireMember(ctx, boardId);
-    const email = notifyEmail?.trim();
+    const email = notifyEmail?.trim().toLowerCase();
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new Error("That does not look like an email address.");
     }

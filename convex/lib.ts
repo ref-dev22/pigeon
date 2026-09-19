@@ -36,6 +36,21 @@ export function normalizeUrl(raw: string): string {
   let s = raw.trim();
   if (!/^https?:\/\//i.test(s)) s = "https://" + s;
   const u = new URL(s);
+  if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("Only http(s) pages can be watched.");
+  // Keep the scraper away from private networks. Local development with the
+  // placeholder Firecrawl key is the one exception (it fetches directly).
+  const host = u.hostname.toLowerCase();
+  const isPrivate =
+    host === "localhost" ||
+    host.endsWith(".local") ||
+    /^(127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host) ||
+    host === "[::1]" ||
+    host.startsWith("[fc") ||
+    host.startsWith("[fd") ||
+    host.startsWith("[fe80");
+  if (isPrivate && process.env.FIRECRAWL_API_KEY !== "fc-local-placeholder") {
+    throw new Error("That address is on a private network and cannot be watched.");
+  }
   u.hash = "";
   // Drop common tracking params so the same page is not watched twice.
   for (const k of [...u.searchParams.keys()]) {

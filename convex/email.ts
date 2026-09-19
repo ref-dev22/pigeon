@@ -109,7 +109,8 @@ export const sendChangeEmail = internalMutation({
         html,
         labels: ["pigeon", "change"],
       });
-      await ctx.db.patch(changeId, { emailStatus: "sent", emailError: undefined });
+      // "queued" is honest: AgentMail sends asynchronously with retries.
+      await ctx.db.patch(changeId, { emailStatus: "queued", emailError: undefined });
       await ctx.db.insert("events", {
         boardId: change.boardId,
         kind: "email.sent",
@@ -142,6 +143,11 @@ export const onMessageReceived = internalMutation({
     };
     const inboxId = msg.inbox_id ?? process.env.AGENTMAIL_INBOX_ID;
     if (!inboxId) return;
+    // The sender address is the only authority here, so insist that it is
+    // authenticated. Anything that fails SPF/DKIM/DMARC is ignored silently.
+    const auth = (message as { authentication_results?: Record<string, string> }).authentication_results;
+    if (auth && !(auth.dkim === "pass" || auth.spf === "pass") ) return;
+    if (auth && auth.dmarc && auth.dmarc !== "pass" && auth.dmarc !== "none") return;
     const sender = parseAddress(msg.from);
 
     // Boards this sender belongs to, matched on the alert email they saved,
@@ -194,7 +200,15 @@ export const onMessageReceived = internalMutation({
     const added: string[] = [];
     const already: string[] = [];
     for (const board of targets) {
+      const count = (
+        await ctx.db
+          .query("watches")
+          .withIndex("by_board", (q) => q.eq("boardId", board._id))
+          .collect()
+      ).length;
+      let room = Math.max(0, 25 - count);
       for (const url of urls.slice(0, 5)) {
+        if (room <= 0) break;
         const existing = await ctx.db
           .query("watches")
           .withIndex("by_board_url", (q) => q.eq("boardId", board._id).eq("url", url))
@@ -224,6 +238,7 @@ export const onMessageReceived = internalMutation({
         });
         await ctx.scheduler.runAfter(0, internal.checks.checkWatch, { watchId });
         if (!added.includes(url)) added.push(url);
+        room--;
       }
       await ctx.db.insert("events", {
         boardId: board._id,

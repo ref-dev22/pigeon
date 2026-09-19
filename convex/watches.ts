@@ -194,7 +194,13 @@ export const updateWatch = mutation({
     if (!watch) throw new Error("Watch not found.");
     await requireMember(ctx, watch.boardId);
     const patch: Record<string, unknown> = {};
-    if (intervalMinutes !== undefined) patch.intervalMinutes = clampInterval(intervalMinutes);
+    if (intervalMinutes !== undefined) {
+      const minutes = clampInterval(intervalMinutes);
+      patch.intervalMinutes = minutes;
+      // Reschedule so a shorter interval takes effect now, not after the old one.
+      const base = watch.lastCheckedAt ?? watch.createdAt;
+      patch.nextCheckAt = Math.min(watch.nextCheckAt, base + minutes * 60_000);
+    }
     if (focus !== undefined) patch.focus = focus.trim() ? focus.trim().slice(0, 200) : undefined;
     if (paused !== undefined) {
       patch.status = paused ? "paused" : "ok";
@@ -251,6 +257,20 @@ export const getWatchInternal = internalQuery({
     if (!watch) return null;
     const latest = watch.latestSnapshotId ? await ctx.db.get(watch.latestSnapshotId) : null;
     return { watch, latest };
+  },
+});
+
+// Claim a check so two triggers (cron plus "Check now") never scrape twice.
+// Returns false when another check started less than three minutes ago.
+export const claimCheck = internalMutation({
+  args: { watchId: v.id("watches") },
+  handler: async (ctx, { watchId }) => {
+    const watch = await ctx.db.get(watchId);
+    if (!watch || watch.status === "paused") return false;
+    const now = Date.now();
+    if (watch.checkingSince && now - watch.checkingSince < 3 * 60_000) return false;
+    await ctx.db.patch(watchId, { checkingSince: now });
+    return true;
   },
 });
 
@@ -336,6 +356,13 @@ export const recordChange = internalMutation({
       lastChangedAt: now,
       changeCount: watch.changeCount + 1,
     });
+    // Keep at most 50 changes per page so storage and deletes stay bounded.
+    const history = await ctx.db
+      .query("changes")
+      .withIndex("by_watch", (q) => q.eq("watchId", args.watchId))
+      .order("desc")
+      .collect();
+    for (const old of history.slice(50)) await ctx.db.delete(old._id);
     await ctx.db.insert("events", {
       boardId: watch.boardId,
       kind: "page.changed",
@@ -385,6 +412,7 @@ export const finishCheck = internalMutation({
     await ctx.db.patch(watchId, {
       status,
       lastError: status === "error" ? lastError : undefined,
+      checkingSince: undefined,
       lastCheckedAt: now,
       nextCheckAt: next,
       checkCount: watch.checkCount + 1,
