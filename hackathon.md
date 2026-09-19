@@ -12,7 +12,7 @@
 - **Auth:** Convex Auth
 - **AI models:** none configured yet (OpenAI-compatible endpoint, model set by `OPENAI_MODEL`; heuristic fallback in use)
 - **Started:** 2026-09-19T16:33:05Z
-- **Last updated:** 2026-09-19T17:10:00Z
+- **Last updated:** 2026-09-19T20:55:00Z
 
 ## Log
 
@@ -28,9 +28,19 @@ Set up Convex Auth with anonymous and password providers so a judge can use the 
 ### 2026-09-19 - 9825e4c
 Built the React frontend: landing page, guest and email sign-in, automatic first board, board screen with an add-page form, a live list of watched pages showing status and the latest summary, a live "what changed" feed with importance chips, board panel with invite link, board email address, member list and alert settings, an activity feed, a page-detail screen with settings, snapshots and current text, and a change screen with the colour-coded diff. All lists update in place as checks finish. Convex features: realtime queries, mutations (`src/App.tsx`, `src/styles.css`).
 
-### 2026-09-19 - working tree
+### 2026-09-19 - 8350927
 Moved static hosting to app-owned mode so Convex Auth's discovery endpoint stays at the root; the AgentMail webhook and the static routes are registered explicitly in the router (`convex/http.ts`, `convex/convex.config.ts`).
 
 Added a local-development fallback that fetches a page directly when the Firecrawl key is the documented placeholder, so the diff, summary and notification path can be tested without an account; production always uses Firecrawl (`convex/checks.ts`). Logged a board event when email is not configured on the deployment so the gap is visible in the activity feed rather than silent (`convex/email.ts`, `convex/boards.ts`).
 
 Verified locally on an anonymous deployment: guest sign-in, board creation, adding a page, first snapshot, a real content change detected with the visitor counter and timestamp correctly ignored (+3/-2 lines), heuristic summary with importance 4, email correctly skipped with a reason, and the diff view. Production build passes.
+
+### 2026-09-19 - c486533
+Moved to one shared AgentMail inbox for the deployment instead of one inbox per board, because the available API key is inbox-scoped. Inbound mail is now routed by the sender address: the address a member saved for alerts, or their account email, selects the board(s); a board named in the subject narrows it further. Added an index on memberships by alert email. Filled in the live URL, repository and deployment (`convex/email.ts`, `convex/schema.ts`, `convex/boards.ts`).
+
+### 2026-09-19 - 9db6f81
+Dark bento-grid redesign: benefit-led headline, the product itself as the hero visual (a static mock of a board row and a change card), one dominant orange call to action that also sits in the top bar for logged-out visitors, benefits before features, an FAQ, and a single-column layout at phone width (`src/App.tsx`, `src/styles.css`, `index.html`).
+
+Fixed alert delivery on the cloud deployment. Convex components do not inherit the deployment's environment variables, and the AgentMail component version in use reads its key from the component environment without declaring it, so sends failed with a missing-key error. Patched the component config to declare `AGENTMAIL_API_KEY` and bound it by reference from the app; patch-package applies the patch on install (`convex/convex.config.ts`, `patches/`). After the fix, a real change on a page hosted on the live site produced an alert that AgentMail reports as sent.
+
+Deployed to production: backend on Convex cloud, frontend on convex.site through the static-hosting component. First real Firecrawl scrape on production succeeded (a GOV.UK page, title extracted).
