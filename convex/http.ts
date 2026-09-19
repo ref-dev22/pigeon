@@ -3,16 +3,17 @@ import { registerStaticRoutes } from "@convex-dev/static-hosting";
 import { httpAction } from "./_generated/server";
 import { auth } from "./auth";
 import { components } from "./_generated/api";
-import { AgentMail } from "@agentmail/convex";
+import { agentmail } from "./email";
 
 const http = httpRouter();
 
 // Convex Auth: sign-in endpoints and OpenID discovery at the root.
 auth.addHttpRoutes(http);
 
-// AgentMail delivers inbound mail here. Register
+// AgentMail delivers inbound mail here. The handle from email.ts carries the
+// onMessageReceived callback; a bare handle would verify and store the event
+// but never route the mail. Register
 // https://<deployment>.convex.site/agentmail/webhook in the AgentMail dashboard.
-const agentmail = new AgentMail(components.agentmail);
 http.route({
   path: "/agentmail/webhook",
   method: "POST",
