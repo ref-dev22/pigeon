@@ -3,6 +3,7 @@ import { createTwoFilesPatch } from "diff";
 import { FirecrawlClient } from "@firecrawl/firecrawl-convex";
 import { components, internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { hashText, stabilize } from "./lib";
 import { heuristicSummary, modelSummary } from "./summarize";
 
@@ -13,8 +14,8 @@ const MAX_MARKDOWN = 400_000;
 
 export const runDueChecks = internalAction({
   args: {},
-  handler: async (ctx) => {
-    const due = await ctx.runQuery(internal.watches.dueWatches, { limit: 20 });
+  handler: async (ctx): Promise<number> => {
+    const due: Id<"watches">[] = await ctx.runQuery(internal.watches.dueWatches, { limit: 20 });
     for (const watchId of due) {
       await ctx.scheduler.runAfter(0, internal.checks.checkWatch, { watchId });
     }
@@ -24,7 +25,7 @@ export const runDueChecks = internalAction({
 
 export const checkWatch = internalAction({
   args: { watchId: v.id("watches") },
-  handler: async (ctx, { watchId }) => {
+  handler: async (ctx, { watchId }): Promise<void> => {
     const loaded = await ctx.runQuery(internal.watches.getWatchInternal, { watchId });
     if (!loaded) return;
     const { watch, latest } = loaded;

@@ -15,7 +15,11 @@ const agentmail = new AgentMail(components.agentmail);
 http.route({
   path: "/agentmail/webhook",
   method: "POST",
-  handler: httpAction(async (ctx, req) => agentmail.handleWebhook(ctx, req)),
+  // The component types its ctx against a slightly older convex release; the
+  // runtime object is the same.
+  handler: httpAction(async (ctx, req) =>
+    agentmail.handleWebhook(ctx as unknown as Parameters<typeof agentmail.handleWebhook>[0], req),
+  ),
 });
 
 export default http;
