@@ -7,9 +7,13 @@ import { clampInterval, DEFAULT_INTERVAL, normalizeUrl, requireMember } from "./
 
 const MAX_WATCHES_PER_BOARD = 25;
 
+// Public queries take ids as strings and normalise them: a mistyped or truncated
+// link must show "not found", never a thrown error.
 export const listWatches = query({
-  args: { boardId: v.id("boards") },
-  handler: async (ctx, { boardId }) => {
+  args: { boardId: v.string() },
+  handler: async (ctx, args) => {
+    const boardId = ctx.db.normalizeId("boards", args.boardId);
+    if (!boardId) return [];
     if (!(await requireMember(ctx, boardId).catch(() => null))) return [];
     const watches = await ctx.db
       .query("watches")
@@ -43,8 +47,10 @@ export const listWatches = query({
 });
 
 export const getWatch = query({
-  args: { watchId: v.id("watches") },
-  handler: async (ctx, { watchId }) => {
+  args: { watchId: v.string() },
+  handler: async (ctx, args) => {
+    const watchId = ctx.db.normalizeId("watches", args.watchId);
+    if (!watchId) return null;
     const watch = await ctx.db.get(watchId);
     if (!watch) return null;
     if (!(await requireMember(ctx, watch.boardId).catch(() => null))) return null;
@@ -75,8 +81,10 @@ export const getWatch = query({
 });
 
 export const listChanges = query({
-  args: { boardId: v.id("boards") },
-  handler: async (ctx, { boardId }) => {
+  args: { boardId: v.string() },
+  handler: async (ctx, args) => {
+    const boardId = ctx.db.normalizeId("boards", args.boardId);
+    if (!boardId) return [];
     const access = await requireMember(ctx, boardId).catch(() => null);
     if (!access) return [];
     const { userId } = access;
@@ -100,8 +108,10 @@ export const listChanges = query({
 });
 
 export const getChange = query({
-  args: { changeId: v.id("changes") },
-  handler: async (ctx, { changeId }) => {
+  args: { changeId: v.string() },
+  handler: async (ctx, args) => {
+    const changeId = ctx.db.normalizeId("changes", args.changeId);
+    if (!changeId) return null;
     const change = await ctx.db.get(changeId);
     if (!change) return null;
     if (!(await requireMember(ctx, change.boardId).catch(() => null))) return null;
@@ -322,6 +332,11 @@ export const markRead = mutation({
 
 // ---------- internal plumbing used by the check pipeline ----------
 
+export const getChangeInternal = internalQuery({
+  args: { changeId: v.id("changes") },
+  handler: async (ctx, { changeId }) => await ctx.db.get(changeId),
+});
+
 export const getWatchInternal = internalQuery({
   args: { watchId: v.id("watches") },
   handler: async (ctx, { watchId }) => {
@@ -489,6 +504,25 @@ export const recordChange = internalMutation({
       at: now,
     });
     return changeId;
+  },
+});
+
+// Alerts already sent for this page in the last 24 hours, newest first.
+export const recentAlerts = internalQuery({
+  args: { watchId: v.id("watches"), exceptChangeId: v.id("changes") },
+  handler: async (ctx, { watchId, exceptChangeId }) => {
+    const since = Date.now() - 24 * 60 * 60_000;
+    const recent = await ctx.db
+      .query("changes")
+      .withIndex("by_watch", (q) => q.eq("watchId", watchId).gt("detectedAt", since))
+      .collect();
+    const emailed = recent
+      .filter((c) => c._id !== exceptChangeId && (c.emailStatus === "queued" || c.emailStatus === "sent"))
+      .sort((a, b) => b.detectedAt - a.detectedAt);
+    return {
+      count: emailed.length,
+      lastSummaries: emailed.slice(0, 3).map((c) => c.summary ?? "").filter((s) => s.length > 0),
+    };
   },
 });
 

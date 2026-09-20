@@ -1014,7 +1014,7 @@ function BoardPanel({ board }: { board: BoardInfo }) {
             {board.inboxAddress ? (
               <span className="copy">
                 <code>{board.inboxAddress}</code>
-                <button className="btn small" onClick={() => void navigator.clipboard.writeText(board.inboxAddress!)}>
+                <button className="btn small" onClick={() => void navigator.clipboard.writeText(board.inboxAddress!).catch(() => {})}>
                   copy
                 </button>
               </span>
@@ -1026,7 +1026,7 @@ function BoardPanel({ board }: { board: BoardInfo }) {
           <dd>
             <span className="copy">
               <code>…/#/join/{board.inviteCode}</code>
-              <button className="btn small" onClick={() => void navigator.clipboard.writeText(inviteLink)}>
+              <button className="btn small" onClick={() => void navigator.clipboard.writeText(inviteLink).catch(() => {})}>
                 copy
               </button>
             </span>

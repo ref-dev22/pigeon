@@ -37,13 +37,24 @@ export const ensureInbox = internalAction({
 
 // Runs when a change has been recorded and summarised.
 export const sendChangeEmail = internalMutation({
-  args: { changeId: v.id("changes") },
-  handler: async (ctx, { changeId }) => {
+  args: { changeId: v.id("changes"), skipReason: v.optional(v.string()) },
+  handler: async (ctx, { changeId, skipReason }) => {
     const change = await ctx.db.get(changeId);
     if (!change) return;
     const watch = await ctx.db.get(change.watchId);
     const board = await ctx.db.get(change.boardId);
     if (!watch || !board) return;
+    if (skipReason) {
+      await ctx.db.patch(changeId, { emailStatus: "skipped", emailError: skipReason });
+      await ctx.db.insert("events", {
+        boardId: change.boardId,
+        kind: "email.skipped",
+        message: (watch.title ?? watch.url) + ": " + skipReason,
+        watchId: watch._id,
+        at: Date.now(),
+      });
+      return;
+    }
     const inboxId = board.inboxId ?? process.env.AGENTMAIL_INBOX_ID;
     if (!inboxId) {
       await ctx.db.patch(changeId, {
@@ -124,8 +135,9 @@ export const sendChangeEmail = internalMutation({
       });
       // The component retries with backoff for a while; keep reconciling past
       // that so a late failure or bounce is not hidden behind an early "sent".
-      for (const delay of [20_000, 90_000, 5 * 60_000, 20 * 60_000, 60 * 60_000, 6 * 60 * 60_000]) {
-        await ctx.scheduler.runAfter(delay, internal.email.syncEmailStatus, { changeId });
+      const delays = [20_000, 90_000, 5 * 60_000, 20 * 60_000, 60 * 60_000, 6 * 60 * 60_000];
+      for (const [i, delay] of delays.entries()) {
+        await ctx.scheduler.runAfter(delay, internal.email.syncEmailStatus, { changeId, final: i === delays.length - 1 });
       }
       await ctx.db.insert("events", {
         boardId: change.boardId,
@@ -146,13 +158,21 @@ export const sendChangeEmail = internalMutation({
 
 // Pull the real send status from the AgentMail component.
 export const syncEmailStatus = internalMutation({
-  args: { changeId: v.id("changes") },
-  handler: async (ctx, { changeId }) => {
+  args: { changeId: v.id("changes"), final: v.optional(v.boolean()) },
+  handler: async (ctx, { changeId, final }) => {
     const change = await ctx.db.get(changeId);
-    if (!change?.emailOutboundId) return;
+    if (!change) return;
     if (change.emailStatus !== "queued" && change.emailStatus !== "sent") return;
+    // "Queued" must not be a final state. If the last reconciliation still
+    // has no answer, say so rather than leave a spinner in the feed.
+    const unconfirmed = async () => {
+      if (final && change.emailStatus === "queued") {
+        await ctx.db.patch(changeId, { emailStatus: "failed", emailError: "No delivery confirmation from the mail service after 6 hours." });
+      }
+    };
+    if (!change.emailOutboundId) return await unconfirmed();
     const s = await agentmail.status(ctx, change.emailOutboundId as never);
-    if (!s) return;
+    if (!s) return await unconfirmed();
     if (s.status === "sent" || s.status === "delivered") {
       if (change.emailStatus !== "sent") await ctx.db.patch(changeId, { emailStatus: "sent", emailError: undefined });
     } else if (s.status === "failed" || s.status === "bounced" || s.status === "rejected") {
@@ -160,6 +180,8 @@ export const syncEmailStatus = internalMutation({
         emailStatus: "failed",
         emailError: (s.errorMessage ?? s.status).slice(0, 300),
       });
+    } else {
+      await unconfirmed();
     }
   },
 });

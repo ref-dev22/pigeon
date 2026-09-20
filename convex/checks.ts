@@ -5,7 +5,7 @@ import { components, internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { capBytes, hashText, isCosmeticDiff, stabilize } from "./lib";
-import { decideImportance, heuristicSummary, modelSummary, type Summary } from "./summarize";
+import { decideNovelty, decideImportance, heuristicSummary, modelSummary, type Summary } from "./summarize";
 
 const firecrawl = new FirecrawlClient(components.firecrawl);
 
@@ -235,7 +235,24 @@ async function summariseAndNotify(
     importance: summary.importance,
     summarySource: summary.source,
   });
-  await ctx.runMutation(internal.email.sendChangeEmail, { changeId });
+  // Alert fatigue gate: a page that has already produced three alerts today
+  // is asked one more cheap question before a fourth email goes out. A page
+  // flipping between two states, or a demo left running, stops here.
+  let skipReason: string | undefined;
+  if (summary.importance >= 2) {
+    const change = await ctx.runQuery(internal.watches.getChangeInternal, { changeId });
+    const recent = change
+      ? await ctx.runQuery(internal.watches.recentAlerts, { watchId: change.watchId, exceptChangeId: changeId })
+      : { count: 0, lastSummaries: [] as string[] };
+    if (recent.count >= 3) {
+      const novelty = await decideNovelty({ diff, newSummary: summary.summary, lastSummaries: recent.lastSummaries });
+      if (novelty === null || novelty < 0.5) {
+        skipReason =
+          "Already alerted " + recent.count + " times today and this looks like more of the same. Logged, not emailed.";
+      }
+    }
+  }
+  await ctx.runMutation(internal.email.sendChangeEmail, { changeId, skipReason });
 }
 
 // Local development only. When the Firecrawl key is the documented
@@ -299,7 +316,26 @@ function formatWhen(ms: number): string {
   return new Date(ms).toISOString().replace("T", " ").slice(0, 16) + " UTC";
 }
 
+// Errors are shown to people in the watch row, so they are rewritten as
+// something a person can act on. Raw component errors never reach the UI.
 function trimError(e: unknown): string {
-  const s = e instanceof Error ? e.message : String(e);
-  return s.length > 300 ? s.slice(0, 297) + "..." : s;
+  let s = e instanceof Error ? e.message : String(e);
+  s = s.replace(/^Uncaught (ConvexError|Error): /, "").trim();
+  const json = s.match(/{.*}/s);
+  if (json) {
+    try {
+      const o = JSON.parse(json[0]) as { code?: string; status?: number; message?: string };
+      if (o.code === "firecrawl_request_failed") {
+        return "The page could not be fetched" + (o.status && o.status !== 200 ? " (HTTP " + o.status + ")" : "") + ". It may block automated readers; try again later.";
+      }
+      if (o.message) s = o.message;
+    } catch {
+      // not JSON after all
+    }
+  }
+  if (/^not found$/i.test(s) || /404/.test(s)) return "Page not found (404). Check the address.";
+  if (/(401|403)|forbidden|unauthori[sz]ed/i.test(s)) return "The page refused access. It may need a login.";
+  if (/timeout|timed out/i.test(s)) return "The page took too long to respond. It will be tried again.";
+  if (/5dd/.test(s)) return "The site returned a server error. It will be tried again.";
+  return s.length > 160 ? s.slice(0, 157) + "..." : s;
 }

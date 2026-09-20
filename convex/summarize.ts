@@ -226,3 +226,46 @@ export async function modelSummary(args: {
     return null;
   }
 }
+
+// Second, cheaper question for a page that already alerted several times
+// today: is this change materially new, or the same story again? Returns the
+// probability that it is new, or null when the decision model is unavailable.
+export async function decideNovelty(args: {
+  diff: string;
+  newSummary: string;
+  lastSummaries: string[];
+}): Promise<number | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const model = process.env.DECISION_MODEL;
+  if (!apiKey || !model) return null;
+  const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://openrouter.ai/api/v1").replace(/\/v1\/?$/, "");
+  const diff = args.diff.length > 8000 ? args.diff.slice(0, 8000) + "\n...(truncated)" : args.diff;
+  try {
+    const res = await fetch(baseUrl + "/alpha/decisions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
+      signal: AbortSignal.timeout(20_000),
+      body: JSON.stringify({
+        model,
+        state: { previous_alerts_today: args.lastSummaries, new_change: args.newSummary, diff },
+        questions: {
+          materially_new: {
+            type: "noul",
+            instructions:
+              "The reader was already emailed previous_alerts_today (newest first). Does new_change tell them something materially different from all of them, justifying another email now?",
+            criteria: {
+              true: "New facts not covered by any earlier alert today: a different amount, date, item, closure or requirement",
+              false: "A rewording of an earlier alert, or the page flipping back to a state an earlier alert today already described",
+            },
+          },
+        },
+      }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { answers?: { materially_new?: { noul?: number } } };
+    const p = data.answers?.materially_new?.noul;
+    return typeof p === "number" ? p : null;
+  } catch {
+    return null;
+  }
+}
