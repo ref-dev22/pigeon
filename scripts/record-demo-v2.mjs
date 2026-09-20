@@ -1,0 +1,32 @@
+// Records the v2 demo: landing -> guest -> save email -> demo notice -> publish change -> summary -> diff -> board.
+import { chromium } from "playwright";
+import { mkdirSync, readdirSync, renameSync } from "node:fs";
+const app = process.argv[2] || "https://marvelous-dinosaur-465.convex.site/";
+const email = process.argv[3] || "omarrefaat11@gmail.com";
+mkdirSync("demo/v2", { recursive: true });
+const b = await chromium.launch();
+const c = await b.newContext({ viewport: { width: 1280, height: 800 }, recordVideo: { dir: "demo/v2", size: { width: 1280, height: 800 } } });
+const p = await c.newPage();
+const w = (ms) => p.waitForTimeout(ms);
+await p.goto(app, { waitUntil: "networkidle" }); await w(4500);
+for (let i = 0; i < 3; i++) { await p.mouse.wheel(0, 600); await w(1400); }
+await p.mouse.wheel(0, -2400); await w(1200);
+await p.getByRole("button", { name: /try it now/i }).first().click();
+await p.waitForURL(/#\/board\//, { timeout: 30000 }); await w(3000);
+await p.getByPlaceholder("you@example.com").first().click(); await w(300);
+await p.getByPlaceholder("you@example.com").first().type(email, { delay: 45 }); await w(600);
+await p.getByRole("button", { name: /save my email/i }).click(); await w(2500);
+await p.getByRole("button", { name: /try a real change/i }).click(); await w(9000);
+const pub = p.getByRole("button", { name: /publish a fee and deadline change/i });
+await pub.waitFor({ state: "visible", timeout: 30000 }); await w(1500);
+await pub.click(); await w(24000);
+await p.getByRole("link", { name: /see diff/i }).first().click(); await w(7000);
+await p.mouse.wheel(0, 350); await w(3500);
+await p.getByText(/back to board/i).click(); await w(3000);
+await p.locator(".watch a").first().click(); await w(5000);
+await p.getByText(/back to board/i).click(); await w(2500);
+await p.mouse.wheel(0, 500); await w(4000);
+await c.close(); await b.close();
+const f = readdirSync("demo/v2").find((x) => x.endsWith(".webm"));
+renameSync("demo/v2/" + f, "demo/pigeon-demo-v2.webm");
+console.log("recorded");
