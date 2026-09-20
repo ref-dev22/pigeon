@@ -78,7 +78,19 @@ export function extractUrls(text: string): string[] {
 export const INTERVALS = [30, 60, 180, 360, 720, 1440, 4320, 10080] as const;
 export const DEFAULT_INTERVAL = 360;
 
-export function clampInterval(minutes: number): number {
+// The app's own demo notice board may be checked every 10 minutes; nothing
+// else can, to protect the free tiers.
+export function isDemoPage(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.pathname === "/demo/notices" && u.hostname.endsWith(".convex.site");
+  } catch {
+    return false;
+  }
+}
+
+export function clampInterval(minutes: number, url?: string): number {
+  if (url && isDemoPage(url) && minutes === 10) return 10;
   const allowed = INTERVALS as readonly number[];
   return allowed.includes(minutes) ? minutes : DEFAULT_INTERVAL;
 }

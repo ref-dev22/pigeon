@@ -729,6 +729,33 @@ function AddWatch({ boardId }: { boardId: Id<"boards"> }) {
       <p className="hint" style={{ gridColumn: "1 / -1", margin: 0 }}>
         The first check takes a snapshot. From then on you get an email only when the page really changes.
       </p>
+      <p className="hint demo-hint" style={{ gridColumn: "1 / -1", margin: 0 }}>
+        No page in mind?{" "}
+        <button
+          type="button"
+          className="btn link"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              await addWatch({
+                boardId,
+                url: window.location.origin + "/demo/notices",
+                intervalMinutes: 10,
+                focus: "fees, dates or closures",
+              });
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Watch the demo notice board
+        </button>
+        . It rewrites a notice every 10 minutes, so with your email saved below you will get a real alert within about a quarter of an hour.
+      </p>
     </form>
   );
 }

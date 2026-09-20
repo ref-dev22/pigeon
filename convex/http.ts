@@ -24,6 +24,10 @@ http.route({
   ),
 });
 
+// A self-changing demo notice board so anyone can see a real alert.
+import { notices } from "./demo";
+http.route({ path: "/demo/notices", method: "GET", handler: notices });
+
 // Everything else: the built frontend, served from Convex storage with an
 // index.html fallback for client-side routes.
 registerStaticRoutes(http, components.staticHosting);

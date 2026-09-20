@@ -146,7 +146,7 @@ export const addWatch = mutation({
     const watchId = await ctx.db.insert("watches", {
       boardId,
       url: normalized,
-      intervalMinutes: clampInterval(intervalMinutes ?? DEFAULT_INTERVAL),
+      intervalMinutes: clampInterval(intervalMinutes ?? DEFAULT_INTERVAL, normalized),
       focus: focus?.trim() ? focus.trim().slice(0, 200) : undefined,
       addedBy: userId,
       source: "web",
@@ -195,7 +195,7 @@ export const updateWatch = mutation({
     await requireMember(ctx, watch.boardId);
     const patch: Record<string, unknown> = {};
     if (intervalMinutes !== undefined) {
-      const minutes = clampInterval(intervalMinutes);
+      const minutes = clampInterval(intervalMinutes, watch.url);
       patch.intervalMinutes = minutes;
       // Reschedule so a shorter interval takes effect now, not after the old one.
       const base = watch.lastCheckedAt ?? watch.createdAt;
