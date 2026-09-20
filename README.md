@@ -8,7 +8,7 @@ Pigeon watches public web pages on a schedule and emails you only when something
 
 Built for the [Convex All Gas Hackathon](https://www.convex.dev/hackathons/all-gas), September 2026.
 
-**Live:** https://marvelous-dinosaur-465.convex.site · **Demo video:** https://youtu.be/i0d-cCDS9_A
+**Live:** https://marvelous-dinosaur-465.convex.site · **Demo video:** https://youtu.be/M9quyQCpe1Q
 
 ## What it does
 

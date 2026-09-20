@@ -71,7 +71,7 @@ An alert-setup prompt now sits above the first-watch form until the member has a
 
 Spot check on an ordinary public page: Hacker News' front page was added to a guest board and re-checked ninety seconds later. The pipeline detected the change, the language model summarised it ("rankings updated, scores and comment counts changed, normal feed activity"), the decision model rated it importance 1, and no email was sent. That is the intended behaviour for a busy feed, and it shows the "paste any page" path is not limited to the demo fixture.
 
-Public posts: X https://x.com/omarref11/status/2101455354173493595 and LinkedIn https://lnkd.in/p/du-TV4kz. Video: https://youtu.be/i0d-cCDS9_A.
+Public posts: X https://x.com/omarref11/status/2101455354173493595 and LinkedIn https://lnkd.in/p/du-TV4kz. Video: https://youtu.be/i0d-cCDS9_A (v1); replaced on 20 Sep by the captioned v3 https://youtu.be/M9quyQCpe1Q.
 
 ### 2026-09-20 - b3ee8a9
 A second independent engineering review (flows, architecture, code quality) produced 28 findings; the ones that could lose an alert, leak data or break a deploy are fixed:
