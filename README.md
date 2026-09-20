@@ -85,11 +85,17 @@ src/
   App.tsx          landing, board, watch detail, change/diff views
 ```
 
+## Try a real change in two clicks
+
+On any board, "Try a real change on a demo notice board" creates a fictional notice page served by the app itself. Once its baseline is captured, "Publish a fee and deadline change" flips the page (fee AED 1,000 to 1,500, deadline moved, a closure added) and checks it immediately, so the summary, the importance judgment and the alert email arrive while you watch. The page is labelled fictional; the pipeline is the real one. A second demo page at `/demo/notices` rewrites itself every ten minutes for unattended watching.
+
 ## Honest limits
 
 - Pages behind logins or heavy bot protection may not scrape.
-- The importance score is a judgment call by a model or a heuristic, not a guarantee.
-- A board watches at most 25 pages, at most every 30 minutes, to stay within free tiers.
+- The importance score is a judgment call by a model or a heuristic, not a guarantee. `docs/filter-eval.md` is a ten-case smoke test, not a proof.
+- A board watches at most 25 pages, at most every 30 minutes (10 for the demo page), an owner has at most 5 boards, and the deployment scrapes at most 700 pages a day, to stay within free tiers.
+- A guest who later creates a password account does not carry boards over; use the invite link.
+- Email addresses are not verified by a confirmation mail. Inbound routing relies on the sender passing SPF or DKIM, and refuses to guess when an address maps to more than one board.
 
 ## Licence
 
