@@ -1,10 +1,11 @@
+import { ConvexError } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 
 export async function requireUser(ctx: QueryCtx | MutationCtx): Promise<Id<"users">> {
   const userId = await getAuthUserId(ctx);
-  if (!userId) throw new Error("Sign in first.");
+  if (!userId) throw new ConvexError("Sign in first.");
   return userId;
 }
 
@@ -14,12 +15,12 @@ export async function requireMember(
 ): Promise<{ userId: Id<"users">; board: Doc<"boards">; membership: Doc<"memberships"> }> {
   const userId = await requireUser(ctx);
   const board = await ctx.db.get(boardId);
-  if (!board) throw new Error("Board not found.");
+  if (!board) throw new ConvexError("Board not found.");
   const membership = await ctx.db
     .query("memberships")
     .withIndex("by_board_user", (q) => q.eq("boardId", boardId).eq("userId", userId))
     .unique();
-  if (!membership) throw new Error("You are not a member of this board.");
+  if (!membership) throw new ConvexError("You are not a member of this board.");
   return { userId, board, membership };
 }
 
@@ -36,7 +37,7 @@ export function normalizeUrl(raw: string): string {
   let s = raw.trim();
   if (!/^https?:\/\//i.test(s)) s = "https://" + s;
   const u = new URL(s);
-  if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("Only http(s) pages can be watched.");
+  if (u.protocol !== "http:" && u.protocol !== "https:") throw new ConvexError("Only http(s) pages can be watched.");
   // Keep the scraper away from private networks. Local development with the
   // placeholder Firecrawl key is the one exception (it fetches directly).
   const host = u.hostname.toLowerCase().replace(/\.$/, "");
@@ -52,7 +53,7 @@ export function normalizeUrl(raw: string): string {
     host.startsWith("[fd") ||
     host.startsWith("[fe80");
   if (isPrivate && process.env.FIRECRAWL_API_KEY !== "fc-local-placeholder") {
-    throw new Error("That address is on a private network and cannot be watched.");
+    throw new ConvexError("That address is on a private network and cannot be watched.");
   }
   u.hash = "";
   // Drop common tracking params so the same page is not watched twice.

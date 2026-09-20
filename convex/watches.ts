@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
@@ -129,7 +130,7 @@ export const addWatch = mutation({
     try {
       normalized = normalizeUrl(url);
     } catch {
-      throw new Error("That is not a valid web address.");
+      throw new ConvexError("That is not a valid web address.");
     }
     const existing = await ctx.db
       .query("watches")
@@ -143,7 +144,7 @@ export const addWatch = mutation({
         .collect()
     ).length;
     if (count >= MAX_WATCHES_PER_BOARD) {
-      throw new Error("A board can watch up to " + MAX_WATCHES_PER_BOARD + " pages.");
+      throw new ConvexError("A board can watch up to " + MAX_WATCHES_PER_BOARD + " pages.");
     }
     const now = Date.now();
     const watchId = await ctx.db.insert("watches", {
@@ -218,11 +219,11 @@ export const publishDemoChange = mutation({
   args: { watchId: v.id("watches") },
   handler: async (ctx, { watchId }) => {
     const watch = await ctx.db.get(watchId);
-    if (!watch) throw new Error("Watch not found.");
+    if (!watch) throw new ConvexError("Watch not found.");
     await requireMember(ctx, watch.boardId);
-    if (!watch.url.includes("/demo/notices?watch=")) throw new Error("Not a demo page.");
+    if (!watch.url.includes("/demo/notices?watch=")) throw new ConvexError("Not a demo page.");
     if ((watch.demoPhase ?? 0) >= 1) return;
-    if (!watch.latestSnapshotId) throw new Error("Still capturing the original notice. Try again in a few seconds.");
+    if (!watch.latestSnapshotId) throw new ConvexError("Still capturing the original notice. Try again in a few seconds.");
     await ctx.db.patch(watchId, { demoPhase: 1, checkingSince: undefined });
     await ctx.db.insert("events", {
       boardId: watch.boardId,
@@ -239,13 +240,15 @@ export const checkNow = mutation({
   args: { watchId: v.id("watches") },
   handler: async (ctx, { watchId }) => {
     const watch = await ctx.db.get(watchId);
-    if (!watch) throw new Error("Watch not found.");
+    if (!watch) throw new ConvexError("Watch not found.");
     await requireMember(ctx, watch.boardId);
-    // Rate-limit manual checks to one a minute per page.
-    if (watch.lastCheckedAt && Date.now() - watch.lastCheckedAt < 60_000) {
-      throw new Error("Checked less than a minute ago. Give it a moment.");
-    }
+    const now = Date.now();
+    // A check already running, or one finished under a minute ago, is answer
+    // enough: tell the caller instead of failing the click.
+    if (watch.checkingSince && now - watch.checkingSince < 6 * 60_000) return "running" as const;
+    if (watch.lastCheckedAt && now - watch.lastCheckedAt < 60_000) return "fresh" as const;
     await ctx.scheduler.runAfter(0, internal.checks.checkWatch, { watchId });
+    return "scheduled" as const;
   },
 });
 
@@ -258,7 +261,7 @@ export const updateWatch = mutation({
   },
   handler: async (ctx, { watchId, intervalMinutes, focus, paused }) => {
     const watch = await ctx.db.get(watchId);
-    if (!watch) throw new Error("Watch not found.");
+    if (!watch) throw new ConvexError("Watch not found.");
     await requireMember(ctx, watch.boardId);
     const patch: Record<string, unknown> = {};
     if (intervalMinutes !== undefined) {

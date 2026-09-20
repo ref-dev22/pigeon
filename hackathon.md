@@ -83,3 +83,12 @@ A second independent engineering review (flows, architecture, code quality) prod
 - Engineering: backend tsconfig includes Node types so `convex dev` typechecks; deploy runs codegen before the frontend build; patch-package is a runtime dependency so a production install applies the AgentMail patch; the AgentMail key is optional so an email-less local setup validates (`convex/tsconfig.json`, `package.json`, `convex/convex.config.ts`, `patches/`).
 - UI: board settings stay in step with saved values; first-board creation shows its error instead of retrying forever; the error boundary resets on navigation; the demo page shows its real 10-minute cadence; pause, remove, rename and interval changes surface failures (`src/App.tsx`).
 Known and accepted for now: a guest who later creates a password account does not carry their boards over (use the invite link); address ownership is not verified by a confirmation email, so routing relies on the sender authenticating (SPF/DKIM) plus the name-the-board rule above.
+
+## 20 Sep, morning: the demo showed "Server Error" after a quick "Check now"
+
+Omar clicked "Check now" straight after "Publish a fee and deadline change" and the row printed `[CONVEX M(watches:checkNow)] ... Server Error`. Two causes stacked: `checkNow` threw a plain `Error` for its one-a-minute rate limit, and Convex hides plain error text in production, so the friendly message never reached the browser.
+
+Fixed in three moves:
+- Every user-facing `throw` in mutations (`watches.ts`, `boards.ts`, `lib.ts`) is now a `ConvexError`, whose text does survive production. The UI reads it through one `errMsg` helper; anything still generic is shown as "Something went wrong on the server. Please try again."
+- `checkNow` no longer throws for timing. It returns `"running"`, `"fresh"` or `"scheduled"`, and the new `CheckNowButton` shows "Checking…" (disabled) while a check is in flight, or a quiet "Checked just now. Try again in a minute." note that fades.
+- `scripts/checknow-test.mjs` replays the exact click sequence from the screenshot against production: no "Server Error", summary present, no page errors.

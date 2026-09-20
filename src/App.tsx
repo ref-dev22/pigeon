@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Authenticated, Unauthenticated, AuthLoading, useMutation, useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
+import { ConvexError } from "convex/values";
 import type { Id } from "../convex/_generated/dataModel";
 import { FlightFeedback, LogoMark, Reveal, SkyScene } from "./PigeonMotion";
 
@@ -38,6 +39,13 @@ function go(hash: string) {
 }
 
 // ---------- helpers ----------
+// User-facing errors are thrown as ConvexError on the server so their text
+// survives production; anything else is shown generically.
+function errMsg(e: unknown): string {
+  if (e instanceof ConvexError) return typeof e.data === "string" ? e.data : JSON.stringify(e.data);
+  if (e instanceof Error) return e.message.includes("Server Error") ? "Something went wrong on the server. Please try again." : e.message;
+  return String(e);
+}
 const INTERVALS: Array<[number, string]> = [
   [30, "every 30 minutes"],
   [60, "hourly"],
@@ -86,6 +94,51 @@ function importanceLabel(i: number | null | undefined): string {
     case 5: return "act now";
     default: return "summarising…";
   }
+}
+
+// "Check now" never errors for timing reasons: while a check runs it waits,
+// and right after one it says so.
+function CheckNowButton({ watchId, checkingSince, lastCheckedAt, onError }: {
+  watchId: Id<"watches">;
+  checkingSince?: number;
+  lastCheckedAt?: number;
+  onError: (m: string | null) => void;
+}) {
+  const checkNow = useMutation(api.watches.checkNow);
+  const [note, setNote] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 5000);
+    return () => clearInterval(t);
+  }, []);
+  void tick;
+  const running = !!checkingSince && Date.now() - checkingSince < 6 * 60_000;
+  useEffect(() => {
+    if (!note) return;
+    const t = setTimeout(() => setNote(null), 6000);
+    return () => clearTimeout(t);
+  }, [note]);
+  return (
+    <>
+      <button
+        className="btn small check-button"
+        data-pigeon-check
+        disabled={running}
+        onClick={() => {
+          onError(null);
+          checkNow({ watchId })
+            .then((r) => {
+              if (r === "fresh") setNote("Checked " + ago(lastCheckedAt) + ". Try again in a minute.");
+              else if (r === "running") setNote("A check is already running.");
+            })
+            .catch((e) => onError(errMsg(e)));
+        }}
+      >
+        {running ? "Checking…" : "Check now"}
+      </button>
+      {note && <span className="hint">{note}</span>}
+    </>
+  );
 }
 
 function Logo() {
@@ -162,7 +215,7 @@ function TopBar({ cta = false }: { cta?: boolean }) {
         <button
           className="btn cta small"
           onClick={() => {
-            signIn("anonymous").catch((e) => alert("Could not start a guest session: " + (e instanceof Error ? e.message : String(e))));
+            signIn("anonymous").catch((e) => alert("Could not start a guest session: " + (errMsg(e))));
           }}
         >
           Try it now, no sign-up <span className="button-arrow" aria-hidden="true">↗</span>
@@ -207,7 +260,7 @@ function Landing({ route }: { route: Route }) {
     try {
       await signIn("anonymous");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errMsg(e));
     } finally {
       setBusy(false);
     }
@@ -576,7 +629,7 @@ function Main({ route }: { route: Route }) {
     joinBoard({ inviteCode: route.code })
       .then((id) => go("/board/" + id))
       .catch((e) => {
-        alert(e instanceof Error ? e.message : String(e));
+        alert(errMsg(e));
         go("/");
       });
   }, [route, joinBoard]);
@@ -590,7 +643,7 @@ function Main({ route }: { route: Route }) {
       setCreating(true);
       createBoard({ name: "My board" })
         .then((id) => go("/board/" + id))
-        .catch((e) => setSetupError(e instanceof Error ? e.message : String(e)))
+        .catch((e) => setSetupError(errMsg(e)))
         .finally(() => setCreating(false));
     }
   }, [boards, route, creating, createBoard, setupError]);
@@ -755,7 +808,7 @@ function AddWatch({ boardId }: { boardId: Id<"boards"> }) {
           setUrl("");
           setFocus("");
         } catch (err) {
-          setError(err instanceof Error ? err.message : String(err));
+          setError(errMsg(err));
         } finally {
           setBusy(false);
         }
@@ -803,7 +856,7 @@ function AddWatch({ boardId }: { boardId: Id<"boards"> }) {
             try {
               await createDemoWatch({ boardId });
             } catch (err) {
-              setError(err instanceof Error ? err.message : String(err));
+              setError(errMsg(err));
             } finally {
               setBusy(false);
             }
@@ -834,7 +887,7 @@ function AlertSetup({ boardId }: { boardId: Id<"boards"> }) {
         try {
           await update({ boardId, notify: true, notifyEmail: email });
         } catch (er) {
-          setErr(er instanceof Error ? er.message : String(er));
+          setErr(errMsg(er));
         } finally {
           setBusy(false);
         }
@@ -867,7 +920,6 @@ function AlertSetup({ boardId }: { boardId: Id<"boards"> }) {
 type WatchListItem = NonNullable<ReturnType<typeof useQuery<typeof api.watches.listWatches>>>[number];
 
 function WatchRow({ w }: { w: WatchListItem }) {
-  const checkNow = useMutation(api.watches.checkNow);
   const publishDemoChange = useMutation(api.watches.publishDemoChange);
   const [err, setErr] = useState<string | null>(null);
   const isDemo = w.url.includes("/demo/notices?watch=");
@@ -906,23 +958,14 @@ function WatchRow({ w }: { w: WatchListItem }) {
             title={w.latestSnapshotId ? "Changes the demo notice and checks it right away" : "Capturing the original notice…"}
             onClick={() => {
               setErr(null);
-              publishDemoChange({ watchId: w._id }).catch((e) => setErr(e instanceof Error ? e.message : String(e)));
+              publishDemoChange({ watchId: w._id }).catch((e) => setErr(errMsg(e)));
             }}
           >
             {w.latestSnapshotId ? "Publish a fee and deadline change" : "Capturing the original notice…"}
           </button>
         )}
         {isDemo && demoPhase === 1 && <span className="hint">Change published</span>}
-        <button
-          className="btn small check-button"
-          data-pigeon-check
-          onClick={() => {
-            setErr(null);
-            checkNow({ watchId: w._id }).catch((e) => setErr(e instanceof Error ? e.message : String(e)));
-          }}
-        >
-          Check now
-        </button>
+        <CheckNowButton watchId={w._id} checkingSince={w.checkingSince} lastCheckedAt={w.lastCheckedAt} onError={setErr} />
       </div>
     </div>
   );
@@ -957,7 +1000,7 @@ function BoardPanel({ board }: { board: BoardInfo }) {
             className="btn small"
             onClick={() => {
               const n = prompt("Board name", board.name);
-              if (n) rename({ boardId: board._id, name: n }).catch((e) => setErr(e instanceof Error ? e.message : String(e)));
+              if (n) rename({ boardId: board._id, name: n }).catch((e) => setErr(errMsg(e)));
             }}
           >
             Rename
@@ -1011,7 +1054,7 @@ function BoardPanel({ board }: { board: BoardInfo }) {
                     setSaved(true);
                     setTimeout(() => setSaved(false), 1500);
                   })
-                  .catch((e) => setErr(e instanceof Error ? e.message : String(e)));
+                  .catch((e) => setErr(errMsg(e)));
               }}
             >
               {saved ? "Saved" : "Save"}
@@ -1041,7 +1084,6 @@ function WatchPage({ watchId }: { watchId: Id<"watches"> }) {
   const data = useQuery(api.watches.getWatch, { watchId });
   const update = useMutation(api.watches.updateWatch);
   const remove = useMutation(api.watches.removeWatch);
-  const checkNow = useMutation(api.watches.checkNow);
   const [err, setErr] = useState<string | null>(null);
   if (data === undefined) return <div className="page empty">Loading…</div>;
   if (data === null) return <div className="page empty">This page is no longer watched.</div>;
@@ -1123,7 +1165,7 @@ function WatchPage({ watchId }: { watchId: Id<"watches"> }) {
                   onChange={(e) => {
                     setErr(null);
                     update({ watchId, intervalMinutes: Number(e.target.value) }).catch((er) =>
-                      setErr(er instanceof Error ? er.message : String(er)),
+                      setErr(errMsg(er)),
                     );
                   }}
                 >
@@ -1148,27 +1190,18 @@ function WatchPage({ watchId }: { watchId: Id<"watches"> }) {
                     const next = e.target.value.trim();
                     if (next === (watch.focus ?? "")) return;
                     setErr(null);
-                    update({ watchId, focus: next }).catch((er) => setErr(er instanceof Error ? er.message : String(er)));
+                    update({ watchId, focus: next }).catch((er) => setErr(errMsg(er)));
                   }}
                 />
               </div>
               <div className="inline">
-                <button
-                  className="btn small check-button"
-                  data-pigeon-check
-                  onClick={() => {
-                    setErr(null);
-                    checkNow({ watchId }).catch((e) => setErr(e instanceof Error ? e.message : String(e)));
-                  }}
-                >
-                  Check now
-                </button>
+                <CheckNowButton watchId={watchId} checkingSince={watch.checkingSince} lastCheckedAt={watch.lastCheckedAt} onError={setErr} />
                 <button
                   className="btn small"
                   onClick={() => {
                     setErr(null);
                     update({ watchId, paused: watch.status !== "paused" }).catch((er) =>
-                      setErr(er instanceof Error ? er.message : String(er)),
+                      setErr(errMsg(er)),
                     );
                   }}
                 >
@@ -1181,7 +1214,7 @@ function WatchPage({ watchId }: { watchId: Id<"watches"> }) {
                       setErr(null);
                       remove({ watchId })
                         .then(() => go("/board/" + watch.boardId))
-                        .catch((er) => setErr(er instanceof Error ? er.message : String(er)));
+                        .catch((er) => setErr(errMsg(er)));
                     }
                   }}
                 >

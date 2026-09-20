@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
@@ -83,7 +84,7 @@ export const createBoard = mutation({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
     if (mine.filter((m) => m.role === "owner").length >= 5) {
-      throw new Error("You already own five boards. Rename or reuse one.");
+      throw new ConvexError("You already own five boards. Rename or reuse one.");
     }
     const trimmed = name.trim().slice(0, 60) || "My board";
     const boardId = await ctx.db.insert("boards", {
@@ -118,7 +119,7 @@ export const renameBoard = mutation({
   args: { boardId: v.id("boards"), name: v.string() },
   handler: async (ctx, { boardId, name }) => {
     const { membership } = await requireMember(ctx, boardId);
-    if (membership.role !== "owner") throw new Error("Only the owner can rename.");
+    if (membership.role !== "owner") throw new ConvexError("Only the owner can rename.");
     await ctx.db.patch(boardId, { name: name.trim().slice(0, 60) || "My board" });
   },
 });
@@ -131,7 +132,7 @@ export const joinBoard = mutation({
       .query("boards")
       .withIndex("by_inviteCode", (q) => q.eq("inviteCode", code.trim().toLowerCase()))
       .unique();
-    if (!board) throw new Error("No board with that invite code.");
+    if (!board) throw new ConvexError("No board with that invite code.");
     const existing = await ctx.db
       .query("memberships")
       .withIndex("by_board_user", (q) => q.eq("boardId", board._id).eq("userId", userId))
@@ -166,7 +167,7 @@ export const updateNotifications = mutation({
     const { membership } = await requireMember(ctx, boardId);
     const email = notifyEmail?.trim().toLowerCase();
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      throw new Error("That does not look like an email address.");
+      throw new ConvexError("That does not look like an email address.");
     }
     await ctx.db.patch(membership._id, {
       notify,
