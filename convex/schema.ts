@@ -118,6 +118,13 @@ export default defineSchema({
     .index("by_board", ["boardId", "detectedAt"])
     .index("by_emailStatus", ["emailStatus"]),
 
+  // Deployment-wide daily scrape meter, so public guest use cannot exhaust
+  // the shared Firecrawl budget.
+  usage: defineTable({
+    day: v.string(), // YYYY-MM-DD (UTC)
+    scrapes: v.number(),
+  }).index("by_day", ["day"]),
+
   // Activity feed for a board: watch added, page changed, email sent, link mailed in.
   events: defineTable({
     boardId: v.id("boards"),

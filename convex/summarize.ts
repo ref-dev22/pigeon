@@ -136,6 +136,7 @@ export async function decideImportance(args: {
   try {
     const res = await fetch(baseUrl + "/alpha/decisions", {
       method: "POST",
+      signal: AbortSignal.timeout(25_000),
       headers: { "content-type": "application/json", authorization: "Bearer " + apiKey },
       body: JSON.stringify({
         model,
@@ -193,6 +194,7 @@ export async function modelSummary(args: {
   try {
     const res = await fetch(baseUrl + "/chat/completions", {
       method: "POST",
+      signal: AbortSignal.timeout(40_000),
       headers: { "content-type": "application/json", authorization: "Bearer " + apiKey },
       body: JSON.stringify({
         model,

@@ -25,7 +25,7 @@ for (const [name, diff] of cases) {
     }),
   });
   const j = await r.json();
-  if (!j.answers) { console.log(name.padEnd(18), "ERROR", JSON.stringify(j).slice(0, 200)); continue; }
+  if (!j.answers) { console.log(name.padEnd(18), "ERROR", JSON.stringify(j).slice(0, 200)); process.exitCode = 1; continue; }
   const a = j.answers;
   console.log(name.padEnd(18), "importance", Math.round(a.importance.score) + 1, "conf", a.importance.confidence.toFixed(2), "email", a.worth_email.noul.toFixed(2));
 }

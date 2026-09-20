@@ -39,12 +39,15 @@ export function normalizeUrl(raw: string): string {
   if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("Only http(s) pages can be watched.");
   // Keep the scraper away from private networks. Local development with the
   // placeholder Firecrawl key is the one exception (it fetches directly).
-  const host = u.hostname.toLowerCase();
+  const host = u.hostname.toLowerCase().replace(/\.$/, "");
+  const v4mapped = /^\[::ffff:(\d+\.\d+\.\d+\.\d+)\]$/.exec(host)?.[1];
+  const ip = v4mapped ?? host;
   const isPrivate =
     host === "localhost" ||
     host.endsWith(".local") ||
-    /^(127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host) ||
+    /^(127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip) ||
     host === "[::1]" ||
+    host.startsWith("[::ffff:") ||
     host.startsWith("[fc") ||
     host.startsWith("[fd") ||
     host.startsWith("[fe80");
@@ -114,10 +117,15 @@ export function stabilize(markdown: string): string {
       // Times, dates and amounts are kept: "closes at 20:00" and "AED 1,500"
       // are real content. Only machine noise is normalised: counters on lines
       // that say they are counters, long query strings, hashes.
-      (/\b(visitors?|views?|online now|members online|followers|likes|hits|page ?views)\b/i.test(line)
-        ? line.replace(/\b\d{1,3}(,\d{3})+\b|\b\d{4,}\b/g, "<n>")
-        : line
-      )
+      line
+        .replace(
+          /\b(visitors?|views?|online now|members online|followers|likes|hits|page ?views|reads?|shares?)\b([^\d\n]{0,24})(\d[\d,]*)/gi,
+          "$1$2<n>",
+        )
+        .replace(
+          /(\d[\d,]*)([^\d\n]{0,12})\b(visitors?|views?|online now|followers|likes|hits|page ?views|reads?|shares?)\b/gi,
+          "<n>$2$3",
+        )
         .replace(/\?[A-Za-z0-9_=&%.-]{20,}/g, "?<q>")
         .replace(/[A-Fa-f0-9]{24,}/g, "<hex>")
         .trimEnd(),
@@ -126,4 +134,36 @@ export function stabilize(markdown: string): string {
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+// Convex documents are limited by bytes, not characters. Trim to a UTF-8 budget.
+export function capBytes(text: string, maxBytes: number): { text: string; truncated: boolean } {
+  const enc = new TextEncoder();
+  if (enc.encode(text).length <= maxBytes) return { text, truncated: false };
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (enc.encode(text.slice(0, mid)).length <= maxBytes) lo = mid;
+    else hi = mid - 1;
+  }
+  return { text: text.slice(0, lo), truncated: true };
+}
+
+// A diff is cosmetic only when every changed line is recognisable noise.
+export function isCosmeticDiff(diff: string): boolean {
+  const changed = diff
+    .split("\n")
+    .filter((l) => (l.startsWith("+") && !l.startsWith("+++")) || (l.startsWith("-") && !l.startsWith("---")))
+    .map((l) => l.slice(1).trim())
+    .filter((l) => l.length > 0);
+  if (changed.length === 0) return true;
+  const noise = /^(last updated|updated on|updated:|page generated|generated at|generated on|<n>)/i;
+  const onlyNoiseTokens = /^[<>n\d\s:.,\-\/|·•]*$/;
+  return changed.every(
+    (l) =>
+      noise.test(l) ||
+      onlyNoiseTokens.test(l) ||
+      /\b(visitors? online|online now|sponsored|advertisement|<n> (visitors?|views?|likes|shares?))\b/i.test(l),
+  );
 }

@@ -134,7 +134,7 @@ export default function App() {
       </Unauthenticated>
       <Authenticated>
         <TopBar />
-        <ErrorBoundary>
+        <ErrorBoundary key={JSON.stringify(route)}>
           <Main route={route} />
         </ErrorBoundary>
       </Authenticated>
@@ -159,7 +159,12 @@ function TopBar({ cta = false }: { cta?: boolean }) {
       <span className="tagline">Watch any page. Get told when it really changes.</span>
       <span className="spacer" />
       {cta && (
-        <button className="btn cta small" onClick={() => void signIn("anonymous")}>
+        <button
+          className="btn cta small"
+          onClick={() => {
+            signIn("anonymous").catch((e) => alert("Could not start a guest session: " + (e instanceof Error ? e.message : String(e))));
+          }}
+        >
           Try it now, no sign-up <span className="button-arrow" aria-hidden="true">↗</span>
         </button>
       )}
@@ -576,16 +581,19 @@ function Main({ route }: { route: Route }) {
       });
   }, [route, joinBoard]);
 
-  // First visit: make a board so the product is usable in one click.
+  // First visit: make a board so the product is usable in one click. A failure
+  // is shown once and never retried automatically.
+  const [setupError, setSetupError] = useState<string | null>(null);
   useEffect(() => {
-    if (boards === undefined || creating) return;
+    if (boards === undefined || creating || setupError) return;
     if (boards.length === 0 && route.name === "home") {
       setCreating(true);
       createBoard({ name: "My board" })
         .then((id) => go("/board/" + id))
+        .catch((e) => setSetupError(e instanceof Error ? e.message : String(e)))
         .finally(() => setCreating(false));
     }
-  }, [boards, route, creating, createBoard]);
+  }, [boards, route, creating, createBoard, setupError]);
 
   // Home with boards: jump to the first one.
   useEffect(() => {
@@ -595,6 +603,16 @@ function Main({ route }: { route: Route }) {
   if (route.name === "board") return <BoardPage boardId={route.boardId} />;
   if (route.name === "watch") return <WatchPage watchId={route.watchId} />;
   if (route.name === "change") return <ChangePage changeId={route.changeId} />;
+  if (setupError) {
+    return (
+      <div className="page empty">
+        Could not create your board: {setupError}{" "}
+        <button className="btn small" onClick={() => setSetupError(null)}>
+          Try again
+        </button>
+      </div>
+    );
+  }
   return <div className="page empty">Setting up your board…</div>;
 }
 
@@ -919,6 +937,12 @@ function BoardPanel({ board }: { board: BoardInfo }) {
   const [notify, setNotify] = useState(board.me.notify);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Keep the draft in step with the live value (for example after the
+  // alert-setup banner saved an address), so Save never wipes it.
+  useEffect(() => {
+    setEmail(board.me.notifyEmail ?? "");
+    setNotify(board.me.notify);
+  }, [board.me.notifyEmail, board.me.notify]);
   const inviteLink = useMemo(
     () => window.location.origin + window.location.pathname + "#/join/" + board.inviteCode,
     [board.inviteCode],
@@ -933,7 +957,7 @@ function BoardPanel({ board }: { board: BoardInfo }) {
             className="btn small"
             onClick={() => {
               const n = prompt("Board name", board.name);
-              if (n) void rename({ boardId: board._id, name: n });
+              if (n) rename({ boardId: board._id, name: n }).catch((e) => setErr(e instanceof Error ? e.message : String(e)));
             }}
           >
             Rename
@@ -1094,23 +1118,38 @@ function WatchPage({ watchId }: { watchId: Id<"watches"> }) {
               <div className="field">
                 <label>How often</label>
                 <select
+                  aria-label="How often to check"
                   value={watch.intervalMinutes}
-                  onChange={(e) => void update({ watchId, intervalMinutes: Number(e.target.value) })}
+                  onChange={(e) => {
+                    setErr(null);
+                    update({ watchId, intervalMinutes: Number(e.target.value) }).catch((er) =>
+                      setErr(er instanceof Error ? er.message : String(er)),
+                    );
+                  }}
                 >
-                  {INTERVALS.map(([v, l]) => (
-                    <option key={v} value={v}>
-                      {l}
-                    </option>
-                  ))}
+                  {(watch.intervalMinutes === 10 ? ([[10, "every 10 minutes (demo page)"], ...INTERVALS] as Array<[number, string]>) : INTERVALS).map(
+                    ([v, l]) => (
+                      <option key={v} value={v}>
+                        {l}
+                      </option>
+                    ),
+                  )}
                 </select>
               </div>
               <div className="field">
                 <label>What matters to you on this page</label>
                 <input
                   type="text"
+                  aria-label="What matters to you on this page"
+                  key={watch.focus ?? ""}
                   defaultValue={watch.focus ?? ""}
                   placeholder="e.g. fees, dates, closures"
-                  onBlur={(e) => void update({ watchId, focus: e.target.value })}
+                  onBlur={(e) => {
+                    const next = e.target.value.trim();
+                    if (next === (watch.focus ?? "")) return;
+                    setErr(null);
+                    update({ watchId, focus: next }).catch((er) => setErr(er instanceof Error ? er.message : String(er)));
+                  }}
                 />
               </div>
               <div className="inline">
@@ -1124,14 +1163,25 @@ function WatchPage({ watchId }: { watchId: Id<"watches"> }) {
                 >
                   Check now
                 </button>
-                <button className="btn small" onClick={() => void update({ watchId, paused: watch.status !== "paused" })}>
+                <button
+                  className="btn small"
+                  onClick={() => {
+                    setErr(null);
+                    update({ watchId, paused: watch.status !== "paused" }).catch((er) =>
+                      setErr(er instanceof Error ? er.message : String(er)),
+                    );
+                  }}
+                >
                   {watch.status === "paused" ? "Resume" : "Pause"}
                 </button>
                 <button
                   className="btn small danger"
                   onClick={() => {
                     if (confirm("Stop watching this page and delete its history?")) {
-                      void remove({ watchId }).then(() => go("/board/" + watch.boardId));
+                      setErr(null);
+                      remove({ watchId })
+                        .then(() => go("/board/" + watch.boardId))
+                        .catch((er) => setErr(er instanceof Error ? er.message : String(er)));
                     }
                   }}
                 >
@@ -1198,7 +1248,7 @@ function ChangePage({ changeId }: { changeId: Id<"changes"> }) {
         <div className="card-body">
           <div style={{ fontSize: 17 }}>{change.summary ?? "Summarising…"}</div>
           <div className="hint" style={{ marginTop: 6 }}>
-            {change.summarySource === "model" ? "Summary written by the model." : change.summarySource === "heuristic" ? "Summary from the diff itself (no model key configured)." : ""}{" "}
+            {change.summarySource === "model" ? "Summary written by the model." : change.summarySource === "heuristic" ? "Summary taken from the diff itself (fallback)." : ""}{" "}
             Email: {change.emailStatus}
             {change.emailError ? " (" + change.emailError + ")" : ""}
           </div>

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { clampInterval, DEFAULT_INTERVAL, normalizeUrl, requireMember } from "./lib";
 
 const MAX_WATCHES_PER_BOARD = 25;
@@ -326,17 +327,52 @@ export const getWatchInternal = internalQuery({
   },
 });
 
-// Claim a check so two triggers (cron plus "Check now") never scrape twice.
-// Returns false when another check started less than three minutes ago.
+// Scrapes allowed per UTC day across the whole deployment (Firecrawl's free
+// tier is 1,000 credits a month plus hackathon credits; this keeps a runaway
+// guest from spending them all).
+const DAILY_SCRAPE_BUDGET = 700;
+
+// Claim a check so two triggers (cron plus "Check now") never scrape twice,
+// and spend one unit of the daily budget. Returns the claim token (a
+// timestamp) to pass back on completion, or null when the check must not run.
 export const claimCheck = internalMutation({
   args: { watchId: v.id("watches") },
   handler: async (ctx, { watchId }) => {
     const watch = await ctx.db.get(watchId);
-    if (!watch || watch.status === "paused") return false;
+    if (!watch || watch.status === "paused") return null;
     const now = Date.now();
-    if (watch.checkingSince && now - watch.checkingSince < 3 * 60_000) return false;
+    // Claims outlive the longest possible scrape (four Firecrawl attempts).
+    if (watch.checkingSince && now - watch.checkingSince < 6 * 60_000) return null;
+    const day = new Date(now).toISOString().slice(0, 10);
+    const meter = await ctx.db
+      .query("usage")
+      .withIndex("by_day", (q) => q.eq("day", day))
+      .unique();
+    if ((meter?.scrapes ?? 0) >= DAILY_SCRAPE_BUDGET) {
+      // Out of budget for today: push the check to tomorrow, do not scrape.
+      await ctx.db.patch(watchId, { nextCheckAt: now + 60 * 60_000, lastError: "Daily check budget reached; retrying later." });
+      return null;
+    }
+    if (meter) await ctx.db.patch(meter._id, { scrapes: meter.scrapes + 1 });
+    else await ctx.db.insert("usage", { day, scrapes: 1 });
     await ctx.db.patch(watchId, { checkingSince: now });
-    return true;
+    return now;
+  },
+});
+
+// Changes that were recorded but never summarised or emailed (for example
+// because a model call hung until the action was cut off).
+export const pendingChanges = internalQuery({
+  args: { watchId: v.id("watches") },
+  handler: async (ctx, { watchId }) => {
+    const rows = await ctx.db
+      .query("changes")
+      .withIndex("by_watch", (q) => q.eq("watchId", watchId))
+      .order("desc")
+      .take(5);
+    return rows
+      .filter((c) => c.summary === undefined && Date.now() - c.detectedAt > 90_000)
+      .map((c) => ({ _id: c._id, diff: c.diff, addedLines: c.addedLines, removedLines: c.removedLines }));
   },
 });
 
@@ -344,15 +380,19 @@ export const dueWatches = internalQuery({
   args: { limit: v.number() },
   handler: async (ctx, { limit }) => {
     const now = Date.now();
-    const out = [];
+    const out: Array<{ id: Id<"watches">; due: number }> = [];
     for (const status of ["ok", "pending", "error"] as const) {
       const rows = await ctx.db
         .query("watches")
         .withIndex("by_nextCheck", (q) => q.eq("status", status).lte("nextCheckAt", now))
         .take(limit);
-      out.push(...rows.map((r) => r._id));
+      out.push(...rows.map((r) => ({ id: r._id, due: r.nextCheckAt })));
     }
-    return out.slice(0, limit);
+    // Fair across statuses: the most overdue first, whatever its state.
+    return out
+      .sort((a, b) => a.due - b.due)
+      .slice(0, limit)
+      .map((r) => r.id);
   },
 });
 
@@ -462,21 +502,25 @@ export const setSummary = internalMutation({
 export const finishCheck = internalMutation({
   args: {
     watchId: v.id("watches"),
+    claim: v.optional(v.number()),
     status: v.union(v.literal("ok"), v.literal("error")),
     lastError: v.optional(v.string()),
     title: v.optional(v.string()),
     latestSnapshotId: v.optional(v.id("snapshots")),
   },
-  handler: async (ctx, { watchId, status, lastError, title, latestSnapshotId }) => {
+  handler: async (ctx, { watchId, claim, status, lastError, title, latestSnapshotId }) => {
     const watch = await ctx.db.get(watchId);
     if (!watch) return;
+    // A worker whose claim has been superseded must not overwrite state.
+    if (claim !== undefined && watch.checkingSince !== undefined && watch.checkingSince !== claim) return;
     const now = Date.now();
     // Back off on repeated errors so a dead page does not burn credits.
     const interval = watch.intervalMinutes * 60_000;
     const next =
       status === "error" ? now + Math.max(interval, 6 * 60 * 60_000) : now + interval;
     await ctx.db.patch(watchId, {
-      status,
+      // A pause requested while the check was running wins.
+      status: watch.status === "paused" ? "paused" : status,
       lastError: status === "error" ? lastError : undefined,
       checkingSince: undefined,
       lastCheckedAt: now,

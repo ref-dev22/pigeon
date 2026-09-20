@@ -2,15 +2,16 @@ import { v } from "convex/values";
 import { createTwoFilesPatch } from "diff";
 import { FirecrawlClient } from "@firecrawl/firecrawl-convex";
 import { components, internal } from "./_generated/api";
-import { internalAction } from "./_generated/server";
+import { internalAction, type ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { hashText, stabilize } from "./lib";
-import { decideImportance, heuristicSummary, modelSummary } from "./summarize";
+import { capBytes, hashText, isCosmeticDiff, stabilize } from "./lib";
+import { decideImportance, heuristicSummary, modelSummary, type Summary } from "./summarize";
 
 const firecrawl = new FirecrawlClient(components.firecrawl);
 
-// Convex documents are capped at 1 MB; keep page text well under that.
-const MAX_MARKDOWN = 400_000;
+// Convex documents are capped at 1 MB; keep page text well under that, in bytes.
+const MAX_MARKDOWN_BYTES = 300_000;
+const MAX_DIFF_BYTES = 150_000;
 
 export const runDueChecks = internalAction({
   args: {},
@@ -30,8 +31,14 @@ export const checkWatch = internalAction({
     if (!loaded) return;
     const { watch, latest } = loaded;
     if (watch.status === "paused") return;
-    const claimed = await ctx.runMutation(internal.watches.claimCheck, { watchId });
-    if (!claimed) return;
+
+    // 0. Finish anything a previous run left half-done (a model call that hung
+    //    until the action was cut off). Idempotent: only changes without a
+    //    summary are touched.
+    await finalizePending(ctx, watchId, watch.url, watch.title, watch.focus);
+
+    const claim = await ctx.runMutation(internal.watches.claimCheck, { watchId });
+    if (claim === null) return;
 
     // 1. Fetch the page as markdown through Firecrawl. Firecrawl's own change
     //    tracking runs alongside our diff so the verdicts can be compared.
@@ -54,8 +61,23 @@ export const checkWatch = internalAction({
     } catch (e) {
       await ctx.runMutation(internal.watches.finishCheck, {
         watchId,
+        claim,
         status: "error",
         lastError: trimError(e),
+      });
+      return;
+    }
+
+    // An error page with readable text must never replace a good baseline.
+    const statusCode = typeof doc.metadata?.statusCode === "number" ? doc.metadata.statusCode : undefined;
+    if ((statusCode !== undefined && statusCode >= 400) || doc.metadata?.error) {
+      await ctx.runMutation(internal.watches.finishCheck, {
+        watchId,
+        claim,
+        status: "error",
+        lastError: doc.metadata?.error
+          ? String(doc.metadata.error).slice(0, 300)
+          : "The page returned HTTP " + statusCode + ".",
       });
       return;
     }
@@ -64,15 +86,15 @@ export const checkWatch = internalAction({
     if (!rawMarkdown) {
       await ctx.runMutation(internal.watches.finishCheck, {
         watchId,
+        claim,
         status: "error",
-        lastError: doc.metadata?.error
-          ? String(doc.metadata.error)
-          : "The page returned no readable text (status " + (doc.metadata?.statusCode ?? "unknown") + ").",
+        lastError: "The page returned no readable text.",
       });
       return;
     }
-    const truncated = rawMarkdown.length > MAX_MARKDOWN;
-    const markdown = truncated ? rawMarkdown.slice(0, MAX_MARKDOWN) : rawMarkdown;
+    const capped = capBytes(rawMarkdown, MAX_MARKDOWN_BYTES);
+    const markdown = capped.text;
+    const truncated = capped.truncated;
     const title = pickTitle(doc.metadata?.title, watch.url);
     const stable = stabilize(markdown);
     const contentHash = hashText(stable);
@@ -85,11 +107,7 @@ export const checkWatch = internalAction({
     //    hash is recomputed so a change to the normaliser never looks like a
     //    page change.
     if (latest && hashText(stabilize(latest.markdown)) === contentHash) {
-      await ctx.runMutation(internal.watches.finishCheck, {
-        watchId,
-        status: "ok",
-        title,
-      });
+      await ctx.runMutation(internal.watches.finishCheck, { watchId, claim, status: "ok", title });
       return;
     }
 
@@ -108,6 +126,7 @@ export const checkWatch = internalAction({
     if (!latest) {
       await ctx.runMutation(internal.watches.finishCheck, {
         watchId,
+        claim,
         status: "ok",
         title,
         latestSnapshotId: snapshotId,
@@ -116,7 +135,7 @@ export const checkWatch = internalAction({
     }
 
     // 4. Build the diff on the stabilised text so noise lines do not show up.
-    const diff = createTwoFilesPatch(
+    const fullDiff = createTwoFilesPatch(
       "before",
       "after",
       stabilize(latest.markdown) + "\n",
@@ -127,56 +146,97 @@ export const checkWatch = internalAction({
     );
     let addedLines = 0;
     let removedLines = 0;
-    for (const line of diff.split("\n")) {
+    for (const line of fullDiff.split("\n")) {
       if (line.startsWith("+") && !line.startsWith("+++")) addedLines++;
       else if (line.startsWith("-") && !line.startsWith("---")) removedLines++;
     }
+    const diffCapped = capBytes(fullDiff, MAX_DIFF_BYTES);
+    const diff = diffCapped.truncated ? diffCapped.text + "\n...(truncated)" : diffCapped.text;
     const changeId = await ctx.runMutation(internal.watches.recordChange, {
       watchId,
       fromSnapshotId: latest._id,
       toSnapshotId: snapshotId,
-      diff: diff.length > 200_000 ? diff.slice(0, 200_000) + "\n...(truncated)" : diff,
+      diff,
       addedLines,
       removedLines,
     });
+    // The baseline advances before summarising, so a hung model call cannot
+    // cause the same change to be recorded twice; finalizePending picks up
+    // whatever is left.
     await ctx.runMutation(internal.watches.finishCheck, {
       watchId,
+      claim,
       status: "ok",
       title,
       latestSnapshotId: snapshotId,
     });
     if (!changeId) return;
 
-    // 5. Explain the change in plain language, then tell the board. The
-    //    heuristic runs first; the model is only paid for when the change is
-    //    more than cosmetic.
-    const quick = heuristicSummary(diff, watch.focus);
-    let summary = quick;
-    if (!(quick.importance <= 1 && addedLines + removedLines <= 2)) {
-      // Two models, two jobs: the decision model judges, the language model
-      // writes. They run in parallel; either can be missing.
-      const args = { diff, title, url: watch.url, focus: watch.focus };
-      const [decision, prose] = await Promise.all([decideImportance(args), modelSummary(args)]);
-      summary = prose ?? quick;
-      if (decision) {
-        let importance = summary.importance;
-        if (decision.confidence >= 0.5) importance = decision.importance;
-        if (decision.touchesFocus !== null && decision.touchesFocus >= 0.8) importance = Math.max(importance, 4);
-        // "Not worth an email" is trusted on its own: in evaluation every
-        // cosmetic change scored 0.10 or below here, every real one 0.69+.
-        if (decision.worthEmail < 0.4) importance = Math.min(importance, 1);
-        summary = { ...summary, importance };
-      }
-    }
-    await ctx.runMutation(internal.watches.setSummary, {
-      changeId,
-      summary: summary.summary,
-      importance: summary.importance,
-      summarySource: summary.source,
-    });
-    await ctx.runMutation(internal.email.sendChangeEmail, { changeId });
+    // 5. Explain the change in plain language, then tell the board.
+    await summariseAndNotify(ctx, changeId, diff, addedLines, removedLines, watch.url, title, watch.focus);
   },
 });
+
+type Ctx = ActionCtx;
+
+async function finalizePending(
+  ctx: Ctx,
+  watchId: Id<"watches">,
+  url: string,
+  title: string | undefined,
+  focus: string | undefined,
+) {
+  const pending = await ctx.runQuery(internal.watches.pendingChanges, { watchId });
+  for (const c of pending) {
+    await summariseAndNotify(ctx, c._id, c.diff, c.addedLines, c.removedLines, url, title, focus);
+  }
+}
+
+async function summariseAndNotify(
+  ctx: Ctx,
+  changeId: Id<"changes">,
+  diff: string,
+  addedLines: number,
+  removedLines: number,
+  url: string,
+  title: string | undefined,
+  focus: string | undefined,
+) {
+  const quick = heuristicSummary(diff, focus);
+  let summary: Summary = quick;
+  // The models are skipped only when every changed line is recognisable
+  // noise. A single meaningful line ("the pool is closed") always gets a
+  // proper judgment.
+  if (isCosmeticDiff(diff)) {
+    summary = { ...quick, importance: 1 };
+  } else {
+    // Two models, two jobs: the decision model judges, the language model
+    // writes. They run in parallel; either can be missing.
+    const args = { diff, title, url, focus };
+    const [decision, prose] = await Promise.all([decideImportance(args), modelSummary(args)]);
+    summary = prose ?? quick;
+    if (decision) {
+      let importance = summary.importance;
+      if (decision.confidence >= 0.5) importance = decision.importance;
+      if (decision.touchesFocus !== null && decision.touchesFocus >= 0.8) importance = Math.max(importance, 4);
+      // "Not worth an email" is trusted on its own: in evaluation every
+      // cosmetic change scored 0.33 or below here, every real one 0.69+.
+      if (decision.worthEmail < 0.4) importance = Math.min(importance, 1);
+      summary = { ...summary, importance };
+    } else if (summary.source === "heuristic" && addedLines + removedLines <= 2) {
+      // No model available and only a line or two changed: stay cautious but
+      // never below "minor", so a real single-line notice still shows up.
+      summary = { ...summary, importance: Math.max(summary.importance, 2) };
+    }
+  }
+  await ctx.runMutation(internal.watches.setSummary, {
+    changeId,
+    summary: summary.summary,
+    importance: summary.importance,
+    summarySource: summary.source,
+  });
+  await ctx.runMutation(internal.email.sendChangeEmail, { changeId });
+}
 
 // Local development only. When the Firecrawl key is the documented
 // placeholder, fetch the page directly and reduce the HTML to text so the
@@ -194,6 +254,7 @@ async function localFetchFallback(url: string): Promise<{
   const res = await fetch(url, {
     headers: { "user-agent": "Mozilla/5.0 (compatible; Pigeon/0.1 local dev)" },
     redirect: "follow",
+    signal: AbortSignal.timeout(30_000),
   });
   const html = await res.text();
   const title = (/<title[^>]*>([^<]*)<\/title>/i.exec(html)?.[1] ?? "").trim();

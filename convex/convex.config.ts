@@ -13,7 +13,8 @@ import agentmail from "@agentmail/convex/convex.config";
 const app = defineApp({
   env: {
     FIRECRAWL_API_KEY: v.string(),
-    AGENTMAIL_API_KEY: v.string(),
+    // Optional: without it the app runs with email disabled and says so.
+    AGENTMAIL_API_KEY: v.optional(v.string()),
   },
 });
 

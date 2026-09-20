@@ -122,13 +122,15 @@ export const sendChangeEmail = internalMutation({
         emailError: undefined,
         emailOutboundId: String(outboundId),
       });
-      for (const delay of [20_000, 90_000, 5 * 60_000]) {
+      // The component retries with backoff for a while; keep reconciling past
+      // that so a late failure or bounce is not hidden behind an early "sent".
+      for (const delay of [20_000, 90_000, 5 * 60_000, 20 * 60_000, 60 * 60_000, 6 * 60 * 60_000]) {
         await ctx.scheduler.runAfter(delay, internal.email.syncEmailStatus, { changeId });
       }
       await ctx.db.insert("events", {
         boardId: change.boardId,
-        kind: "email.sent",
-        message: "Emailed " + recipients.length + " member(s) about " + title,
+        kind: "email.queued",
+        message: "Queued an alert email to " + recipients.length + " member(s) about " + title,
         watchId: watch._id,
         changeId,
         at: Date.now(),
@@ -148,11 +150,11 @@ export const syncEmailStatus = internalMutation({
   handler: async (ctx, { changeId }) => {
     const change = await ctx.db.get(changeId);
     if (!change?.emailOutboundId) return;
-    if (change.emailStatus !== "queued") return;
+    if (change.emailStatus !== "queued" && change.emailStatus !== "sent") return;
     const s = await agentmail.status(ctx, change.emailOutboundId as never);
     if (!s) return;
     if (s.status === "sent" || s.status === "delivered") {
-      await ctx.db.patch(changeId, { emailStatus: "sent", emailError: undefined });
+      if (change.emailStatus !== "sent") await ctx.db.patch(changeId, { emailStatus: "sent", emailError: undefined });
     } else if (s.status === "failed" || s.status === "bounced" || s.status === "rejected") {
       await ctx.db.patch(changeId, {
         emailStatus: "failed",
@@ -214,7 +216,14 @@ export const onMessageReceived = internalMutation({
       }
     }
 
-    const body = (msg.text ?? "") + "\n" + stripTags(msg.html ?? "") + "\n" + (msg.subject ?? "");
+    // Prefer the new text of a reply over quoted history, so replying "thanks"
+    // to an old alert does not re-add the pages it mentioned.
+    const m2 = message as { extracted_text?: string; extracted_html?: string };
+    const fresh = (m2.extracted_text ?? "") + "\n" + stripTags(m2.extracted_html ?? "");
+    const body =
+      (fresh.trim().length > 0 ? fresh : (msg.text ?? "") + "\n" + stripTags(msg.html ?? "")) +
+      "\n" +
+      (msg.subject ?? "");
     const urls = extractUrls(body).filter((u) => !/mailto:|unsubscribe|agentmail|convex\.site/i.test(u));
 
     // Optional interval hint in the subject or body, e.g. "hourly" / "daily".
@@ -227,9 +236,13 @@ export const onMessageReceived = internalMutation({
     interval = clampInterval(interval);
 
     // If the subject names one of the sender's boards, use only that one.
+    // When the address maps to several boards and none is named, do not guess:
+    // a board that merely claims someone's address must not receive their
+    // links. Ask the sender to name the board instead.
     const subjectLower = (msg.subject ?? "").toLowerCase();
     const named = boards.filter((b) => subjectLower.includes(b.name.toLowerCase()));
-    const targets = named.length ? named : boards;
+    const ambiguous = boards.length > 1 && named.length === 0;
+    const targets = ambiguous ? [] : named.length ? named : boards;
 
     const added: string[] = [];
     const already: string[] = [];
@@ -292,6 +305,11 @@ export const onMessageReceived = internalMutation({
       lines.push(
         "Thanks for writing to Pigeon. I could not match your address to a board.",
         "Open your board, put this email address in \"Where should your alerts go?\", save, and send the link again.",
+      );
+    } else if (ambiguous) {
+      lines.push(
+        "Your address is on more than one board (" + boards.map((b) => "“" + b.name + "”").join(", ") + ").",
+        "Put the board's name in the subject and send the link again, so it goes to the right one.",
       );
     } else if (urls.length === 0) {
       lines.push(
