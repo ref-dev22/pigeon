@@ -52,5 +52,12 @@ Hardening after an independent code review: checks are claimed with a `checkingS
 
 Two models, two jobs: a structured decision model (TypeSafe Jev through OpenRouter's decisions endpoint) now judges importance, whether the change deserves an email, and whether it touches the reader's stated focus, returning typed answers with probabilities; the language model still writes the two-sentence summary. They run in parallel, and either can be missing (`convex/summarize.ts`, `convex/checks.ts`).
 
+### 2026-09-19 - 66c2a1b
+Each change now records the AgentMail outbound id and a scheduled follow-up syncs the real send status, so the board shows "sent" or "failed" with the reason instead of staying at "queued" (`convex/email.ts`, `convex/schema.ts`). Alert emails carry a plain importance label and a descriptive subject instead of exclamation marks.
+
+Added a self-rewriting demo notice board served by the app at `/demo/notices` (an HTTP action whose content changes every ten minutes, deterministic from the clock) and a one-click "Watch the demo notice board" with a ten-minute interval allowed only for that page. Anyone who saves an alert email can receive a real change email within about a quarter of an hour without anything being staged (`convex/demo.ts`, `convex/http.ts`, `convex/lib.ts`, `src/App.tsx`).
+
+Evaluated the decision model on ten diffs a notices page might produce: every cosmetic case (counter, timestamp, cookie wording, related links, typo, rotating advert) scored 0.33 or below for "worth an email", every meaningful case (fee, closure, moved deadline, new requirement) 0.69 or above. The gate now trusts that signal on its own. Table and script in `docs/filter-eval.md` and `docs/filter-eval.mjs`.
+
 ### 2026-09-19 - 2c21ae4
 Replaced the dark bento landing with a light editorial design: daytime sky hero, serif display type, tiny tracked labels, a small gold call to action, staggered load and scroll reveals, a gliding origami pigeon that also flaps when a check is triggered, all disabled under reduced motion. Hero and section artwork were generated with an image model and stored under `public/art` with their prompts in `art-prompts.md`. Board, page and change screens follow the same light system (`src/App.tsx`, `src/styles.css`, `src/PigeonMotion.tsx`, `index.html`).
