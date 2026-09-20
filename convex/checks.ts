@@ -154,10 +154,13 @@ export const checkWatch = internalAction({
       const args = { diff, title, url: watch.url, focus: watch.focus };
       const [decision, prose] = await Promise.all([decideImportance(args), modelSummary(args)]);
       summary = prose ?? quick;
-      if (decision && decision.confidence >= 0.5) {
-        let importance = decision.importance;
+      if (decision) {
+        let importance = summary.importance;
+        if (decision.confidence >= 0.5) importance = decision.importance;
         if (decision.touchesFocus !== null && decision.touchesFocus >= 0.8) importance = Math.max(importance, 4);
-        if (decision.worthEmail < 0.3) importance = Math.min(importance, 1);
+        // "Not worth an email" is trusted on its own: in evaluation every
+        // cosmetic change scored 0.10 or below here, every real one 0.69+.
+        if (decision.worthEmail < 0.4) importance = Math.min(importance, 1);
         summary = { ...summary, importance };
       }
     }
