@@ -98,11 +98,12 @@ function importanceLabel(i: number | null | undefined): string {
 
 // "Check now" never errors for timing reasons: while a check runs it waits,
 // and right after one it says so.
-function CheckNowButton({ watchId, checkingSince, lastCheckedAt, onError }: {
+function CheckNowButton({ watchId, checkingSince, lastCheckedAt, onError, label = "Check now" }: {
   watchId: Id<"watches">;
   checkingSince?: number;
   lastCheckedAt?: number;
   onError: (m: string | null) => void;
+  label?: string;
 }) {
   const checkNow = useMutation(api.watches.checkNow);
   const [note, setNote] = useState<string | null>(null);
@@ -134,7 +135,7 @@ function CheckNowButton({ watchId, checkingSince, lastCheckedAt, onError }: {
             .catch((e) => onError(errMsg(e)));
         }}
       >
-        {running ? "Checking…" : "Check now"}
+        {running ? "Checking…" : label}
       </button>
       {note && <span className="hint">{note}</span>}
     </>
@@ -864,7 +865,7 @@ function AddWatch({ boardId }: { boardId: Id<"boards"> }) {
         >
           Try a real change on a demo notice board
         </button>
-        . Pigeon captures the original notice; then you publish a fee and deadline change and watch the alert arrive. Fictional page, real pipeline.
+        . Pigeon captures the original notice; then you publish a fee and deadline change and watch the alert arrive. Fictional page, real pipeline. Checked every 10 minutes for the first hour, then every 6 hours; publishing checks immediately.
       </p>
     </form>
   );
@@ -951,18 +952,28 @@ function WatchRow({ w }: { w: WatchListItem }) {
         {err && <div className="error">{err}</div>}
       </div>
       <div className="actions">
-        {isDemo && demoPhase === 0 && (
+        {isDemo && demoPhase === 0 && w.latestSnapshotId && (
           <button
             className="btn small primary"
-            disabled={!w.latestSnapshotId}
-            title={w.latestSnapshotId ? "Changes the demo notice and checks it right away" : "Capturing the original notice…"}
+            title="Changes the demo notice and checks it right away"
             onClick={() => {
               setErr(null);
               publishDemoChange({ watchId: w._id }).catch((e) => setErr(errMsg(e)));
             }}
           >
-            {w.latestSnapshotId ? "Publish a fee and deadline change" : "Capturing the original notice…"}
+            Publish a fee and deadline change
           </button>
+        )}
+        {isDemo && demoPhase === 0 && !w.latestSnapshotId && (
+          // No baseline yet. While the first check runs the button waits; if that
+          // check finished without a snapshot, offer a retry instead of a dead button.
+          w.checkCount === 0 || w.checkingSince ? (
+            <button className="btn small primary" disabled title="Capturing the original notice…">
+              Capturing the original notice…
+            </button>
+          ) : (
+            <CheckNowButton watchId={w._id} checkingSince={w.checkingSince} lastCheckedAt={w.lastCheckedAt} onError={setErr} label="Retry original capture" />
+          )
         )}
         {isDemo && demoPhase === 1 && <span className="hint">Change published</span>}
         <CheckNowButton watchId={w._id} checkingSince={w.checkingSince} lastCheckedAt={w.lastCheckedAt} onError={setErr} />

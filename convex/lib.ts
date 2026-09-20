@@ -93,8 +93,15 @@ export function isDemoPage(url: string): boolean {
   }
 }
 
-export function clampInterval(minutes: number, url?: string): number {
-  if (url && isDemoPage(url) && minutes === 10) return 10;
+// An unpublished per-board demo may stay at ten minutes for this long.
+export const DEMO_FAST_WINDOW_MS = 60 * 60_000;
+
+export function isPerBoardDemo(url: string): boolean {
+  return isDemoPage(url) && url.includes("/demo/notices?watch=");
+}
+
+export function clampInterval(minutes: number, url?: string, opts?: { demoEligible?: boolean }): number {
+  if (url && isDemoPage(url) && minutes === 10 && (opts?.demoEligible ?? true)) return 10;
   const allowed = INTERVALS as readonly number[];
   return allowed.includes(minutes) ? minutes : DEFAULT_INTERVAL;
 }

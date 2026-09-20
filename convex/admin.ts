@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 
 // Operator tools, only runnable with `npx convex run` on the deployment.
 export const demoWatchReport = internalQuery({
@@ -25,6 +26,30 @@ export const pauseWatches = internalMutation({
   handler: async (ctx, { ids }) => {
     for (const id of ids) await ctx.db.patch(id, { status: "paused" });
     return ids.length;
+  },
+});
+
+// One-off backfill for SPEC-014: relax unpublished demos older than an hour
+// and schedule the timer for younger ones.
+export const backfillDemoTimers = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const watches = await ctx.db.query("watches").collect();
+    let relaxed = 0;
+    let scheduled = 0;
+    for (const w of watches) {
+      if (!w.url.includes("/demo/notices?watch=") || (w.demoPhase ?? 0) !== 0 || w.intervalMinutes !== 10) continue;
+      const age = Date.now() - w.createdAt;
+      if (age >= 60 * 60_000) {
+        const base = w.lastCheckedAt ?? w.createdAt;
+        await ctx.db.patch(w._id, { intervalMinutes: 360, nextCheckAt: Math.max(w.nextCheckAt, base + 360 * 60_000) });
+        relaxed++;
+      } else {
+        await ctx.scheduler.runAfter(60 * 60_000 - age, internal.watches.relaxUnpublishedDemo, { watchId: w._id });
+        scheduled++;
+      }
+    }
+    return { relaxed, scheduled };
   },
 });
 
@@ -160,5 +185,46 @@ export const expireIdleGuestWatches = internalMutation({
       });
     }
     return { boardsTouched, pausedWatches };
+  },
+});
+
+// Who has used the app: boards by creation day, whether an email was saved,
+// pages added, and whether any page is not one of our own fixtures.
+export const usageReport = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const boards = await ctx.db.query("boards").collect();
+    const watches = await ctx.db.query("watches").collect();
+    const own = (u: string) => /marvelous-dinosaur-465\.convex\.site/.test(u);
+    const rows = [];
+    for (const b of boards) {
+      const members = await ctx.db.query("memberships").withIndex("by_board", (q) => q.eq("boardId", b._id)).collect();
+      const emails = members.map((m) => m.notifyEmail).filter(Boolean) as string[];
+      const ws = watches.filter((w) => w.boardId === b._id);
+      rows.push({
+        created: new Date(b.createdAt).toISOString().slice(0, 16).replace("T", " "),
+        name: b.name,
+        members: members.length,
+        emailDomains: emails.map((e) => e.split("@")[1]),
+        pages: ws.length,
+        externalPages: ws.filter((w) => !own(w.url)).map((w) => ({ url: w.url.slice(0, 70), status: w.status, checks: w.checkCount, changes: w.changeCount, title: w.title ?? null, lastError: w.lastError ?? null })),
+        demo: ws.filter((w) => own(w.url)).map((w) => ({ phase: w.demoPhase ?? null, checks: w.checkCount, changes: w.changeCount, status: w.status })),
+        source: ws.map((w) => w.source),
+      });
+    }
+    rows.sort((a, b) => (a.created < b.created ? 1 : -1));
+    return rows;
+  },
+});
+
+// Test hook for SPEC-014 acceptance: relax one demo regardless of age.
+export const forceRelaxDemo = internalMutation({
+  args: { watchId: v.id("watches") },
+  handler: async (ctx, { watchId }) => {
+    const w = await ctx.db.get(watchId);
+    if (!w || !w.url.includes("/demo/notices?watch=") || (w.demoPhase ?? 0) !== 0) return false;
+    const base = w.lastCheckedAt ?? w.createdAt;
+    await ctx.db.patch(watchId, { intervalMinutes: 360, nextCheckAt: Math.max(w.nextCheckAt, base + 360 * 60_000) });
+    return true;
   },
 });

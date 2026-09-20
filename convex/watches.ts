@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { clampInterval, DEFAULT_INTERVAL, normalizeUrl, requireMember } from "./lib";
+import { clampInterval, DEFAULT_INTERVAL, DEMO_FAST_WINDOW_MS, isPerBoardDemo, normalizeUrl, requireMember } from "./lib";
 
 const MAX_WATCHES_PER_BOARD = 25;
 
@@ -220,6 +220,8 @@ export const createDemoWatch = mutation({
       at: now,
     });
     await ctx.scheduler.runAfter(0, internal.checks.checkWatch, { watchId });
+    // SPEC-014: ten-minute checks are for the first hour only.
+    await ctx.scheduler.runAfter(DEMO_FAST_WINDOW_MS, internal.watches.relaxUnpublishedDemo, { watchId });
     return watchId;
   },
 });
@@ -235,8 +237,13 @@ export const publishDemoChange = mutation({
     if ((watch.demoPhase ?? 0) >= 1) return;
     if (!watch.latestSnapshotId) throw new ConvexError("Still capturing the original notice. Try again in a few seconds.");
     // The demo is done after this check: fall back to a normal interval so the
-    // page is not scraped every ten minutes for ever.
-    await ctx.db.patch(watchId, { demoPhase: 1, checkingSince: undefined, intervalMinutes: DEFAULT_INTERVAL });
+    // page is not scraped every ten minutes for ever. A demo paused by the
+    // daily expiry is resumed, otherwise the scheduled check would refuse to run.
+    await ctx.db.patch(watchId, {
+      demoPhase: 1,
+      intervalMinutes: DEFAULT_INTERVAL,
+      ...(watch.status === "paused" ? { status: "ok" as const } : {}),
+    });
     await ctx.db.insert("events", {
       boardId: watch.boardId,
       kind: "demo.published",
@@ -277,7 +284,9 @@ export const updateWatch = mutation({
     await requireMember(ctx, watch.boardId);
     const patch: Record<string, unknown> = {};
     if (intervalMinutes !== undefined) {
-      const minutes = clampInterval(intervalMinutes, watch.url);
+      const demoEligible =
+        isPerBoardDemo(watch.url) && (watch.demoPhase ?? 0) === 0 && Date.now() - watch.createdAt < DEMO_FAST_WINDOW_MS;
+      const minutes = clampInterval(intervalMinutes, watch.url, { demoEligible });
       patch.intervalMinutes = minutes;
       // Reschedule so a shorter interval takes effect now, not after the old one.
       const base = watch.lastCheckedAt ?? watch.createdAt;
@@ -523,6 +532,25 @@ export const recentAlerts = internalQuery({
       count: emailed.length,
       lastSummaries: emailed.slice(0, 3).map((c) => c.summary ?? "").filter((s) => s.length > 0),
     };
+  },
+});
+
+// SPEC-014: an hour after creation, an unpublished demo falls back to the
+// default interval. Nothing else changes: not the status, phase, baseline or a
+// running claim, and no scrape is started here.
+export const relaxUnpublishedDemo = internalMutation({
+  args: { watchId: v.id("watches") },
+  handler: async (ctx, { watchId }) => {
+    const w = await ctx.db.get(watchId);
+    if (!w || !isPerBoardDemo(w.url)) return false;
+    if ((w.demoPhase ?? 0) !== 0 || w.intervalMinutes !== 10) return false;
+    if (Date.now() - w.createdAt < DEMO_FAST_WINDOW_MS) return false;
+    const base = w.lastCheckedAt ?? w.createdAt;
+    await ctx.db.patch(watchId, {
+      intervalMinutes: DEFAULT_INTERVAL,
+      nextCheckAt: Math.max(w.nextCheckAt, base + DEFAULT_INTERVAL * 60_000),
+    });
+    return true;
   },
 });
 

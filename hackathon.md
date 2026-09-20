@@ -112,3 +112,12 @@ Both bugs the owner found came from off-script use: an unexpected click order, a
 Also: clipboard writes no longer throw when the browser denies them; an old test page that had emailed four times today is paused.
 
 Follow-up the same afternoon: the health report was re-run after the fixes and Jev still ranked the deployment unhealthy, because the findings were now my own chaos leftovers (guest boards with mistyped URLs, historical counts on paused watches). Two changes: the report separates benign errors (not found, refused access) from unexplained ones and ignores paused watches; and the roadmap item "guest-watch expiry" is done. A daily cron (`admin:expireIdleGuestWatches`) pauses every page on a board where nobody saved an alert email within a day, with a note in the activity feed and a one-click resume. Run once by hand it paused 32 test watches on 14 boards. Jev's verdict after that: healthy, urgency below "look this week", worst finding "none".
+
+## 20 Sep, afternoon: SPEC-014, unpublished demos stop scraping every ten minutes
+
+A visitor who creates the demo notice board but never presses publish left a watch at the ten-minute interval until the daily expiry; one such board produced 13 useless scrapes. Discussed with Codex GPT-6 Astra (design and code review) and Jev (typed judgement: 60-minute window at 0.95, worth shipping now at 0.68), then approved by the owner as SPEC-014.
+
+- A timer scheduled at creation relaxes an unpublished demo to the 6-hour default after 60 minutes, moving the next check accordingly and touching nothing else (`watches.relaxUnpublishedDemo`). Publishing still checks 1.5 s later, so a returning judge sees the same demo. Ten existing demos were relaxed by a one-off backfill.
+- Bugs found by the review and fixed with it: publishing a demo paused by the expiry now resumes it, otherwise the scheduled check refused to run; a failed baseline capture now offers "Retry original capture" instead of a button disabled for ever; the interval setting can no longer put a demo back to ten minutes after the hour.
+- Demo hint now says: checked every 10 minutes for the first hour, then every 6 hours; publishing checks immediately.
+- `scripts/demo-late-publish.mjs` creates a demo, relaxes it, publishes and confirms the summary arrives with no error. Three chaos seeds clean; Jev health verdict healthy, worst finding none.
