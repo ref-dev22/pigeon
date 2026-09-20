@@ -1,6 +1,6 @@
 # Filter evaluation
 
-Pigeon's promise is "only when it matters", so the filter is the product. This is a small, reproducible check of the decision model (`typesafe/jev-1.13` through OpenRouter's decisions endpoint) on ten diffs a community-notices page might produce. Reader focus was set to "fees, dates or closures". Run on 20 September 2026.
+Pigeon's promise is "only when it matters", so the filter is the product. Ten hand-written cases are a smoke test, not a proof: they show the decision model separates obvious noise from obvious signal on one kind of page. Real pages will produce edge cases this table does not cover. This is a small, reproducible check of the decision model (`typesafe/jev-1.13` through OpenRouter's decisions endpoint) on ten diffs a community-notices page might produce. Reader focus was set to "fees, dates or closures". Run on 20 September 2026.
 
 | Case | Diff (abridged) | Importance (1-5) | Confidence | P(worth an email) | Pigeon's action |
 |---|---|---:|---:|---:|---|

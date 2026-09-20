@@ -59,6 +59,8 @@ Judge path in two clicks: "Try a real change on a demo notice board" creates one
 
 An alert-setup prompt now sits above the first-watch form until the member has an email, so the product's main benefit is never silently off (`src/App.tsx`).
 
+Spot check on an ordinary public page: Hacker News' front page was added to a guest board and re-checked ninety seconds later. The pipeline detected the change, the language model summarised it ("rankings updated, scores and comment counts changed, normal feed activity"), the decision model rated it importance 1, and no email was sent. That is the intended behaviour for a busy feed, and it shows the "paste any page" path is not limited to the demo fixture.
+
 Public posts: X https://x.com/omarref11/status/2101455354173493595 and LinkedIn https://lnkd.in/p/du-TV4kz. Video: https://youtu.be/i0d-cCDS9_A.
 
 ### 2026-09-19 - 66c2a1b
@@ -66,7 +68,7 @@ Each change now records the AgentMail outbound id and a scheduled follow-up sync
 
 Added a self-rewriting demo notice board served by the app at `/demo/notices` (an HTTP action whose content changes every ten minutes, deterministic from the clock) and a one-click "Watch the demo notice board" with a ten-minute interval allowed only for that page. Anyone who saves an alert email can receive a real change email within about a quarter of an hour without anything being staged (`convex/demo.ts`, `convex/http.ts`, `convex/lib.ts`, `src/App.tsx`).
 
-Evaluated the decision model on ten diffs a notices page might produce: every cosmetic case (counter, timestamp, cookie wording, related links, typo, rotating advert) scored 0.33 or below for "worth an email", every meaningful case (fee, closure, moved deadline, new requirement) 0.69 or above. The gate now trusts that signal on its own. Table and script in `docs/filter-eval.md` and `docs/filter-eval.mjs`.
+Evaluated the decision model on ten diffs a notices page might produce: every cosmetic case (counter, timestamp, cookie wording, related links, typo, rotating advert) scored 0.33 or below for "worth an email", every meaningful case (fee, closure, moved deadline, new requirement) 0.69 or above. The gate now trusts that signal on its own. Ten cases are a smoke test, not a proof; real pages will have edge cases this does not cover. Table and script in `docs/filter-eval.md` and `docs/filter-eval.mjs`.
 
 ### 2026-09-19 - 2c21ae4
 Replaced the dark bento landing with a light editorial design: daytime sky hero, serif display type, tiny tracked labels, a small gold call to action, staggered load and scroll reveals, a gliding origami pigeon that also flaps when a check is triggered, all disabled under reduced motion. Hero and section artwork were generated with an image model and stored under `public/art` with their prompts in `art-prompts.md`. Board, page and change screens follow the same light system (`src/App.tsx`, `src/styles.css`, `src/PigeonMotion.tsx`, `index.html`).
