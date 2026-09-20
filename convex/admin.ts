@@ -245,3 +245,11 @@ export const forceRelaxDemo = internalMutation({
     return true;
   },
 });
+
+export const inviteLinkFor = internalQuery({
+  args: { boardId: v.id("boards") },
+  handler: async (ctx, { boardId }) => {
+    const b = await ctx.db.get(boardId);
+    return b ? (process.env.APP_URL ?? "") + "/#/join/" + b.inviteCode : null;
+  },
+});

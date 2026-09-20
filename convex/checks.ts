@@ -75,9 +75,12 @@ export const checkWatch = internalAction({
         watchId,
         claim,
         status: "error",
-        lastError: doc.metadata?.error
-          ? String(doc.metadata.error).slice(0, 300)
-          : "The page returned HTTP " + statusCode + ".",
+        // Same wording rules as thrown errors: a person reads this.
+        lastError: trimError(
+          doc.metadata?.error
+            ? String(doc.metadata.error) + (statusCode ? " (" + statusCode + ")" : "")
+            : "HTTP " + statusCode,
+        ),
       });
       return;
     }
