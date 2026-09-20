@@ -36,7 +36,11 @@ export const myBoards = query({
 export const getBoard = query({
   args: { boardId: v.id("boards") },
   handler: async (ctx, { boardId }) => {
-    const { board, membership, userId } = await requireMember(ctx, boardId);
+    // A stale link to a board this user is not on returns null instead of throwing,
+    // so the page can send them home rather than crash.
+    const access = await requireMember(ctx, boardId).catch(() => null);
+    if (!access) return null;
+    const { board, membership, userId } = access;
     const memberships = await ctx.db
       .query("memberships")
       .withIndex("by_board", (q) => q.eq("boardId", boardId))
@@ -174,7 +178,7 @@ export const updateNotifications = mutation({
 export const listEvents = query({
   args: { boardId: v.id("boards") },
   handler: async (ctx, { boardId }) => {
-    await requireMember(ctx, boardId);
+    if (!(await requireMember(ctx, boardId).catch(() => null))) return [];
     return await ctx.db
       .query("events")
       .withIndex("by_board", (q) => q.eq("boardId", boardId))

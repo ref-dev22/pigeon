@@ -8,7 +8,7 @@ const MAX_WATCHES_PER_BOARD = 25;
 export const listWatches = query({
   args: { boardId: v.id("boards") },
   handler: async (ctx, { boardId }) => {
-    await requireMember(ctx, boardId);
+    if (!(await requireMember(ctx, boardId).catch(() => null))) return [];
     const watches = await ctx.db
       .query("watches")
       .withIndex("by_board", (q) => q.eq("boardId", boardId))
@@ -45,7 +45,7 @@ export const getWatch = query({
   handler: async (ctx, { watchId }) => {
     const watch = await ctx.db.get(watchId);
     if (!watch) return null;
-    await requireMember(ctx, watch.boardId);
+    if (!(await requireMember(ctx, watch.boardId).catch(() => null))) return null;
     const snapshots = await ctx.db
       .query("snapshots")
       .withIndex("by_watch", (q) => q.eq("watchId", watchId))
@@ -75,7 +75,9 @@ export const getWatch = query({
 export const listChanges = query({
   args: { boardId: v.id("boards") },
   handler: async (ctx, { boardId }) => {
-    const { userId } = await requireMember(ctx, boardId);
+    const access = await requireMember(ctx, boardId).catch(() => null);
+    if (!access) return [];
+    const { userId } = access;
     const changes = await ctx.db
       .query("changes")
       .withIndex("by_board", (q) => q.eq("boardId", boardId))
@@ -100,7 +102,7 @@ export const getChange = query({
   handler: async (ctx, { changeId }) => {
     const change = await ctx.db.get(changeId);
     if (!change) return null;
-    await requireMember(ctx, change.boardId);
+    if (!(await requireMember(ctx, change.boardId).catch(() => null))) return null;
     const watch = await ctx.db.get(change.watchId);
     const to = await ctx.db.get(change.toSnapshotId);
     const from = change.fromSnapshotId ? await ctx.db.get(change.fromSnapshotId) : null;

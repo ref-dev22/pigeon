@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Authenticated, Unauthenticated, AuthLoading, useMutation, useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
@@ -92,6 +92,33 @@ function Logo() {
   return <LogoMark />;
 }
 
+// Last line of defence: a failed query must never leave a blank page.
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="page empty">
+          Something went wrong loading this view.{" "}
+          <button
+            className="btn small"
+            onClick={() => {
+              this.setState({ error: null });
+              go("/");
+            }}
+          >
+            Back to my board
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ---------- app shell ----------
 export default function App() {
   const route = useRoute();
@@ -107,7 +134,9 @@ export default function App() {
       </Unauthenticated>
       <Authenticated>
         <TopBar />
-        <Main route={route} />
+        <ErrorBoundary>
+          <Main route={route} />
+        </ErrorBoundary>
       </Authenticated>
       <footer className="foot">
         Pigeon · a newsletter for pages that don't have one · built on Convex, Firecrawl, AgentMail and OpenAI
@@ -151,7 +180,7 @@ function TopBar({ cta = false }: { cta?: boolean }) {
       {user && (
         <>
           <span className="hint">{user.isAnonymous ? "Guest" : user.email ?? user.name ?? "Signed in"}</span>
-          <button className="btn small" onClick={() => void signOut()}>
+          <button className="btn small" onClick={() => { go("/"); void signOut(); }}>
             Sign out
           </button>
         </>
@@ -569,6 +598,19 @@ function Main({ route }: { route: Route }) {
   return <div className="page empty">Setting up your board…</div>;
 }
 
+// Shown for a stale or foreign board link; sends the user to their own board.
+function BoardMissing() {
+  useEffect(() => {
+    const t = setTimeout(() => go("/"), 1500);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div className="page empty">
+      That board is not yours or no longer exists. Taking you to your own board… <a href="#/">Go now</a>
+    </div>
+  );
+}
+
 // ---------- board ----------
 function BoardPage({ boardId }: { boardId: Id<"boards"> }) {
   const board = useQuery(api.boards.getBoard, { boardId });
@@ -576,7 +618,7 @@ function BoardPage({ boardId }: { boardId: Id<"boards"> }) {
   const changes = useQuery(api.watches.listChanges, { boardId });
   const events = useQuery(api.boards.listEvents, { boardId });
   if (board === undefined) return <div className="page empty">Loading board…</div>;
-  if (board === null) return <div className="page empty">Board not found.</div>;
+  if (board === null) return <BoardMissing />;
 
   return (
     <div className="page">
