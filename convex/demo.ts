@@ -7,13 +7,15 @@ import type { Id } from "./_generated/dataModel";
 // watch a page and see a real alert without waiting for the world to change.
 //
 // Two modes:
-//   /demo/notices              rewrites one or two notices every ten minutes
+//   /demo/notices              rewrites one or two notices every six hours
 //                              (deterministic from the clock).
 //   /demo/notices?watch=<id>   a fixed fictional notice tied to one watch;
 //                              its content flips once when the board owner
 //                              clicks "Publish a fee and deadline change".
 
-const WINDOW_MS = 10 * 60_000;
+// Six hours: often enough to show unattended change detection, rare enough
+// that a real watcher is not emailed all day.
+const WINDOW_MS = 6 * 60 * 60_000;
 
 const POOL = [
   "The main pool is open daily from 07:00 to 21:00.",

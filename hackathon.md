@@ -92,3 +92,11 @@ Fixed in three moves:
 - Every user-facing `throw` in mutations (`watches.ts`, `boards.ts`, `lib.ts`) is now a `ConvexError`, whose text does survive production. The UI reads it through one `errMsg` helper; anything still generic is shown as "Something went wrong on the server. Please try again."
 - `checkNow` no longer throws for timing. It returns `"running"`, `"fresh"` or `"scheduled"`, and the new `CheckNowButton` shows "Checking…" (disabled) while a check is in flight, or a quiet "Checked just now. Try again in a minute." note that fades.
 - `scripts/checknow-test.mjs` replays the exact click sequence from the screenshot against production: no "Server Error", summary present, no page errors.
+
+## 20 Sep, mid-morning: an alert every fifteen minutes
+
+Omar's inbox showed a Pigeon alert every quarter hour. Cause: one watch from my early testing pointed at the shared `/demo/notices` page, which rewrote itself every ten minutes by design, and its board had Omar's email. Every rotation was a genuine, important-looking change, so every check emailed. Working as built, built wrong.
+
+- That watch is paused. `convex/admin.ts` holds the operator tools used (`demoWatchReport`, `pauseWatches`, `relaxFinishedDemos`), runnable only with `npx convex run`.
+- The shared demo page now rotates every six hours, not ten minutes.
+- When a board publishes its demo change, the watch drops from ten minutes to the normal six-hour interval; the demo has made its point and should not scrape all day.

@@ -224,7 +224,9 @@ export const publishDemoChange = mutation({
     if (!watch.url.includes("/demo/notices?watch=")) throw new ConvexError("Not a demo page.");
     if ((watch.demoPhase ?? 0) >= 1) return;
     if (!watch.latestSnapshotId) throw new ConvexError("Still capturing the original notice. Try again in a few seconds.");
-    await ctx.db.patch(watchId, { demoPhase: 1, checkingSince: undefined });
+    // The demo is done after this check: fall back to a normal interval so the
+    // page is not scraped every ten minutes for ever.
+    await ctx.db.patch(watchId, { demoPhase: 1, checkingSince: undefined, intervalMinutes: DEFAULT_INTERVAL });
     await ctx.db.insert("events", {
       boardId: watch.boardId,
       kind: "demo.published",

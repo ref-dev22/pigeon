@@ -87,7 +87,7 @@ src/
 
 ## Try a real change in two clicks
 
-On any board, "Try a real change on a demo notice board" creates a fictional notice page served by the app itself. Once its baseline is captured, "Publish a fee and deadline change" flips the page (fee AED 1,000 to 1,500, deadline moved, a closure added) and checks it immediately, so the summary, the importance judgment and the alert email arrive while you watch. The page is labelled fictional; the pipeline is the real one. A second demo page at `/demo/notices` rewrites itself every ten minutes for unattended watching.
+On any board, "Try a real change on a demo notice board" creates a fictional notice page served by the app itself. Once its baseline is captured, "Publish a fee and deadline change" flips the page (fee AED 1,000 to 1,500, deadline moved, a closure added) and checks it immediately, so the summary, the importance judgment and the alert email arrive while you watch. The page is labelled fictional; the pipeline is the real one. A second demo page at `/demo/notices` rewrites itself every six hours for unattended watching. Once a board's demo change is published, that watch drops to the normal six-hour interval.
 
 ## Honest limits
 
