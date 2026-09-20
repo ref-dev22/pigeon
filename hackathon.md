@@ -12,7 +12,7 @@
 - **Auth:** Convex Auth
 - **AI models:** openai/gpt-5.6-luna (summaries, via an OpenAI-compatible endpoint set by `OPENAI_BASE_URL`), typesafe/jev-1.13 (importance and email-worthiness decisions, via OpenRouter's decisions endpoint); heuristic fallback when either is unavailable
 - **Started:** 2026-09-19T16:33:05Z
-- **Last updated:** 2026-09-19T22:40:00Z
+- **Last updated:** 2026-09-20T02:10:00Z
 
 ## Log
 
@@ -52,7 +52,17 @@ Hardening after an independent code review: checks are claimed with a `checkingS
 
 Two models, two jobs: a structured decision model (TypeSafe Jev through OpenRouter's decisions endpoint) now judges importance, whether the change deserves an email, and whether it touches the reader's stated focus, returning typed answers with probabilities; the language model still writes the two-sentence summary. They run in parallel, and either can be missing (`convex/summarize.ts`, `convex/checks.ts`).
 
-### 2026-09-20 - working tree
+### 2026-09-19 - 66c2a1b
+Each change now records the AgentMail outbound id and a scheduled follow-up syncs the real send status, so the board shows "sent" or "failed" with the reason instead of staying at "queued" (`convex/email.ts`, `convex/schema.ts`). Alert emails carry a plain importance label and a descriptive subject instead of exclamation marks.
+
+Added a self-rewriting demo notice board served by the app at `/demo/notices` (an HTTP action whose content changes every ten minutes, deterministic from the clock) and a one-click "Watch the demo notice board" with a ten-minute interval allowed only for that page. Anyone who saves an alert email can receive a real change email within about a quarter of an hour without anything being staged (`convex/demo.ts`, `convex/http.ts`, `convex/lib.ts`, `src/App.tsx`).
+
+Evaluated the decision model on ten diffs a notices page might produce: every cosmetic case (counter, timestamp, cookie wording, related links, typo, rotating advert) scored 0.33 or below for "worth an email", every meaningful case (fee, closure, moved deadline, new requirement) 0.69 or above. The gate now trusts that signal on its own. Ten cases are a smoke test, not a proof; real pages will have edge cases this does not cover. Table and script in `docs/filter-eval.md` and `docs/filter-eval.mjs`.
+
+### 2026-09-19 - 2c21ae4
+Replaced the dark bento landing with a light editorial design: daytime sky hero, serif display type, tiny tracked labels, a small gold call to action, staggered load and scroll reveals, a gliding origami pigeon that also flaps when a check is triggered, all disabled under reduced motion. Hero and section artwork were generated with an image model and stored under `public/art` with their prompts in `art-prompts.md`. Board, page and change screens follow the same light system (`src/App.tsx`, `src/styles.css`, `src/PigeonMotion.tsx`, `index.html`).
+
+### 2026-09-20 - 481422a
 Two reliability fixes from an independent review: the normaliser kept replacing every comma-formatted number, so "AED 1,000" becoming "AED 1,500" would have been missed; it now only touches counters on lines that name themselves as such (visitors, views, followers). Firecrawl scrapes pass `maxAge: 0` so a cached copy can never mask a change, and the previous snapshot's hash is recomputed with the current normaliser so a rule change never looks like a page change (`convex/lib.ts`, `convex/checks.ts`).
 
 Judge path in two clicks: "Try a real change on a demo notice board" creates one fictional notice per board at `/demo/notices?watch=<id>`, checked through the real pipeline; once the baseline exists, "Publish a fee and deadline change" flips the page (fee AED 1,000 to 1,500, deadline 15 to 10 October, a closure added) and schedules an immediate check, so the summary, importance and email arrive while the judge is watching. Idempotent per board; boards cannot affect each other (`convex/demo.ts`, `convex/watches.ts`, `src/App.tsx`).
@@ -63,12 +73,13 @@ Spot check on an ordinary public page: Hacker News' front page was added to a gu
 
 Public posts: X https://x.com/omarref11/status/2101455354173493595 and LinkedIn https://lnkd.in/p/du-TV4kz. Video: https://youtu.be/i0d-cCDS9_A.
 
-### 2026-09-19 - 66c2a1b
-Each change now records the AgentMail outbound id and a scheduled follow-up syncs the real send status, so the board shows "sent" or "failed" with the reason instead of staying at "queued" (`convex/email.ts`, `convex/schema.ts`). Alert emails carry a plain importance label and a descriptive subject instead of exclamation marks.
-
-Added a self-rewriting demo notice board served by the app at `/demo/notices` (an HTTP action whose content changes every ten minutes, deterministic from the clock) and a one-click "Watch the demo notice board" with a ten-minute interval allowed only for that page. Anyone who saves an alert email can receive a real change email within about a quarter of an hour without anything being staged (`convex/demo.ts`, `convex/http.ts`, `convex/lib.ts`, `src/App.tsx`).
-
-Evaluated the decision model on ten diffs a notices page might produce: every cosmetic case (counter, timestamp, cookie wording, related links, typo, rotating advert) scored 0.33 or below for "worth an email", every meaningful case (fee, closure, moved deadline, new requirement) 0.69 or above. The gate now trusts that signal on its own. Ten cases are a smoke test, not a proof; real pages will have edge cases this does not cover. Table and script in `docs/filter-eval.md` and `docs/filter-eval.mjs`.
-
-### 2026-09-19 - 2c21ae4
-Replaced the dark bento landing with a light editorial design: daytime sky hero, serif display type, tiny tracked labels, a small gold call to action, staggered load and scroll reveals, a gliding origami pigeon that also flaps when a check is triggered, all disabled under reduced motion. Hero and section artwork were generated with an image model and stored under `public/art` with their prompts in `art-prompts.md`. Board, page and change screens follow the same light system (`src/App.tsx`, `src/styles.css`, `src/PigeonMotion.tsx`, `index.html`).
+### 2026-09-20 - b3ee8a9
+A second independent engineering review (flows, architecture, code quality) produced 28 findings; the ones that could lose an alert, leak data or break a deploy are fixed:
+- Filtering: the models are skipped only when every changed line is recognisable noise, so a single meaningful line ("the pool is closed") is always judged; counters are normalised only where a counter label sits next to the number, so "AED 1,000" on a line that also says "visitors" is kept (`convex/lib.ts`, `convex/checks.ts`).
+- Pipeline: model calls have deadlines; changes left without a summary by an interrupted run are finished on the next check; checks carry a claim token so a superseded worker cannot overwrite state; a pause requested during a check is preserved; error pages (HTTP 400+) never replace a good baseline; page text and diffs are capped in bytes, not characters; the cron drains the most overdue pages first regardless of status (`convex/checks.ts`, `convex/watches.ts`, `convex/summarize.ts`).
+- Cost: a deployment-wide daily scrape budget (700) stops a runaway guest from exhausting the shared Firecrawl credits (`convex/watches.ts`, `convex/schema.ts`).
+- Mail: when a sender's address is on more than one board and the subject names none, nothing is added and the sender is asked to name the board; a board that merely claims an address cannot silently receive someone else's links. Replies use the new text only, so quoted history never re-adds old pages. Delivery status is reconciled for six hours (`convex/email.ts`).
+- Auth: emails are lowercased on sign-up and sign-in so casing never splits an account or breaks inbound routing (`convex/auth.ts`).
+- Engineering: backend tsconfig includes Node types so `convex dev` typechecks; deploy runs codegen before the frontend build; patch-package is a runtime dependency so a production install applies the AgentMail patch; the AgentMail key is optional so an email-less local setup validates (`convex/tsconfig.json`, `package.json`, `convex/convex.config.ts`, `patches/`).
+- UI: board settings stay in step with saved values; first-board creation shows its error instead of retrying forever; the error boundary resets on navigation; the demo page shows its real 10-minute cadence; pause, remove, rename and interval changes surface failures (`src/App.tsx`).
+Known and accepted for now: a guest who later creates a password account does not carry their boards over (use the invite link); address ownership is not verified by a confirmation email, so routing relies on the sender authenticating (SPF/DKIM) plus the name-the-board rule above.
