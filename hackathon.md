@@ -52,6 +52,15 @@ Hardening after an independent code review: checks are claimed with a `checkingS
 
 Two models, two jobs: a structured decision model (TypeSafe Jev through OpenRouter's decisions endpoint) now judges importance, whether the change deserves an email, and whether it touches the reader's stated focus, returning typed answers with probabilities; the language model still writes the two-sentence summary. They run in parallel, and either can be missing (`convex/summarize.ts`, `convex/checks.ts`).
 
+### 2026-09-20 - working tree
+Two reliability fixes from an independent review: the normaliser kept replacing every comma-formatted number, so "AED 1,000" becoming "AED 1,500" would have been missed; it now only touches counters on lines that name themselves as such (visitors, views, followers). Firecrawl scrapes pass `maxAge: 0` so a cached copy can never mask a change, and the previous snapshot's hash is recomputed with the current normaliser so a rule change never looks like a page change (`convex/lib.ts`, `convex/checks.ts`).
+
+Judge path in two clicks: "Try a real change on a demo notice board" creates one fictional notice per board at `/demo/notices?watch=<id>`, checked through the real pipeline; once the baseline exists, "Publish a fee and deadline change" flips the page (fee AED 1,000 to 1,500, deadline 15 to 10 October, a closure added) and schedules an immediate check, so the summary, importance and email arrive while the judge is watching. Idempotent per board; boards cannot affect each other (`convex/demo.ts`, `convex/watches.ts`, `src/App.tsx`).
+
+An alert-setup prompt now sits above the first-watch form until the member has an email, so the product's main benefit is never silently off (`src/App.tsx`).
+
+Public posts: X https://x.com/omarref11/status/2101455354173493595 and LinkedIn https://lnkd.in/p/du-TV4kz. Video: https://youtu.be/i0d-cCDS9_A.
+
 ### 2026-09-19 - 66c2a1b
 Each change now records the AgentMail outbound id and a scheduled follow-up syncs the real send status, so the board shows "sent" or "failed" with the reason instead of staying at "queued" (`convex/email.ts`, `convex/schema.ts`). Alert emails carry a plain importance label and a descriptive subject instead of exclamation marks.
 
