@@ -9,7 +9,7 @@ await p.goto(app, { waitUntil: "networkidle" });
 await p.getByRole("button", { name: /try it now/i }).first().click();
 await p.waitForURL(/#\/board\//, { timeout: 30000 }); await p.waitForTimeout(2500);
 if (email) { await p.getByPlaceholder("you@example.com").first().fill(email); await p.getByRole("button", { name: /save my email/i }).click(); await p.waitForTimeout(1500); }
-await p.getByRole("button", { name: /try a real change/i }).click();
+await p.getByRole("button", { name: /try a real change/i }).first().click();
 await p.waitForTimeout(12000);
 console.log("after create:", (await p.innerText("body")).match(/Riverside[^\n]*\n[^\n]*\n[^\n]*\n[^\n]*/)?.[0]);
 const pub = p.getByRole("button", { name: /publish a fee and deadline change/i });

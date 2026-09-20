@@ -5,7 +5,7 @@ const errs = []; p.on("pageerror", e => errs.push(String(e)));
 await p.goto(app, { waitUntil: "networkidle" });
 await p.getByRole("button", { name: /try it now/i }).first().click();
 await p.waitForURL(/#\/board\//, { timeout: 30000 }); await p.waitForTimeout(2500);
-await p.getByRole("button", { name: /try a real change/i }).click();
+await p.getByRole("button", { name: /try a real change/i }).first().click();
 await p.waitForTimeout(12000);
 const pub = p.getByRole("button", { name: /publish a fee/i });
 await pub.waitFor({ state: "visible", timeout: 30000 });

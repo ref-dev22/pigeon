@@ -48,8 +48,16 @@ const FIXED: Record<number, string[]> = {
     "Parking permits for next year can be requested from 1 October at the management office. The fee is AED 1,000 per vehicle, due by 15 October.",
     "The gym opens 06:00 to 22:00 every day.",
   ],
+  // Phase 1: a cosmetic edit. Same facts, one sentence reworded, new timestamp
+  // and visitor count. The pipeline should log it and stay quiet.
   1: [
-    "The main pool is open daily from 07:00 to 21:00.",
+    "The main pool is open every day from 07:00 to 21:00.",
+    "Parking permits for next year can be requested from 1 October at the management office. The fee is AED 1,000 per vehicle, due by 15 October.",
+    "The gym opens 06:00 to 22:00 every day.",
+  ],
+  // Phase 2: the change that matters.
+  2: [
+    "The main pool is open every day from 07:00 to 21:00.",
     "Parking permits for next year can be requested from 1 October at the management office. The fee is AED 1,500 per vehicle, due by 10 October.",
     "The gym opens 06:00 to 22:00 every day.",
     "New: the community hall is closed for renovation until the end of next month.",
@@ -74,8 +82,8 @@ export const notices = httpAction(async (ctx, req) => {
   if (watchParam) {
     const phase = (await ctx.runQuery(internal.demo.demoPhase, { watchId: watchParam })) ?? 0;
     items = FIXED[phase] ?? FIXED[0];
-    updated = phase === 0 ? "2026-09-01 09:00" : "2026-09-20 09:00";
-    visitors = phase === 0 ? 1234 : 1987;
+    updated = phase === 0 ? "2026-09-01 09:00" : phase === 1 ? "2026-09-20 08:00" : "2026-09-20 09:00";
+    visitors = phase === 0 ? 1234 : phase === 1 ? 1987 : 2412;
   } else {
     const pick = (arr: string[], salt: number) => arr[(bucket + salt) % arr.length];
     const extra = pick(EXTRA, 1);

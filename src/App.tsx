@@ -711,13 +711,17 @@ function BoardPage({ boardId }: { boardId: Id<"boards"> }) {
       </p>
       <div className="grid">
         <div className="stack">
-          {!board.members.find((m) => m.isMe)?.hasEmail && <AlertSetup boardId={boardId} />}
+          {watches !== undefined && watches.length === 0 ? (
+            <DemoCard boardId={boardId} hasEmail={!!board.members.find((m) => m.isMe)?.hasEmail} />
+          ) : (
+            !board.members.find((m) => m.isMe)?.hasEmail && <AlertSetup boardId={boardId} />
+          )}
           <div className="card">
             <div className="card-head">
               <h2>Watch a page</h2>
             </div>
             <div className="card-body">
-              <AddWatch boardId={boardId} />
+              <AddWatch boardId={boardId} showDemoHint={watches !== undefined && watches.length > 0} />
             </div>
           </div>
           <div className="card">
@@ -789,7 +793,7 @@ function BoardPage({ boardId }: { boardId: Id<"boards"> }) {
   );
 }
 
-function AddWatch({ boardId }: { boardId: Id<"boards"> }) {
+function AddWatch({ boardId, showDemoHint = true }: { boardId: Id<"boards">; showDemoHint?: boolean }) {
   const addWatch = useMutation(api.watches.addWatch);
   const createDemoWatch = useMutation(api.watches.createDemoWatch);
   const [url, setUrl] = useState("");
@@ -845,6 +849,7 @@ function AddWatch({ boardId }: { boardId: Id<"boards"> }) {
       <p className="hint" style={{ gridColumn: "1 / -1", margin: 0 }}>
         The first check takes a snapshot. From then on you get an email only when the page really changes.
       </p>
+      {showDemoHint && (
       <p className="hint demo-hint" style={{ gridColumn: "1 / -1", margin: 0 }}>
         No page in mind?{" "}
         <button
@@ -865,9 +870,85 @@ function AddWatch({ boardId }: { boardId: Id<"boards"> }) {
         >
           Try a real change on a demo notice board
         </button>
-        . Pigeon captures the original notice; then you publish a fee and deadline change and watch the alert arrive. Fictional page, real pipeline. Checked every 10 minutes for the first hour, then every 6 hours; publishing checks immediately.
+        . Pigeon captures the original notice; you publish a cosmetic edit and watch it stay quiet, then a fee and deadline change and watch the alert arrive. Fictional page, real pipeline. Checked every 10 minutes for the first hour, then every 6 hours; publishing checks immediately.
       </p>
+      )}
     </form>
+  );
+}
+
+// SPEC-016: on an empty board the demo comes first, with the alert email
+// beside it, so a first-time visitor reaches the payoff without reading.
+function DemoCard({ boardId, hasEmail }: { boardId: Id<"boards">; hasEmail: boolean }) {
+  const createDemoWatch = useMutation(api.watches.createDemoWatch);
+  const update = useMutation(api.boards.updateNotifications);
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <div className="card demo-card" data-pigeon-demo-card>
+      <div className="card-body">
+        <b>See a real alert in about a minute.</b>
+        <div className="hint" style={{ marginTop: 4, marginBottom: 10 }}>
+          Pigeon watches a fictional community notice board through the real pipeline. Publish a cosmetic edit and watch it stay quiet; publish a fee and
+          deadline change and watch the summary, the importance judgment and the email arrive.
+        </div>
+        {!hasEmail && !saved && (
+          <form
+            className="inline"
+            style={{ alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setBusy(true);
+              setErr(null);
+              try {
+                await update({ boardId, notify: true, notifyEmail: email });
+                setSaved(true);
+              } catch (er) {
+                setErr(errMsg(er));
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <input
+              type="email"
+              placeholder="you@example.com (optional, to receive the alert)"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              style={{ flex: "1 1 260px", padding: "9px 12px", border: "1px solid var(--line)", borderRadius: 9 }}
+            />
+            <button className="btn small" type="submit" disabled={busy || !email}>
+              {busy ? "Saving…" : "Save my email"}
+            </button>
+          </form>
+        )}
+        <button
+          type="button"
+          className="btn primary"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setErr(null);
+            try {
+              await createDemoWatch({ boardId });
+            } catch (er) {
+              setErr(errMsg(er));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Try a real change on a demo notice board
+        </button>
+        <div className="hint" style={{ marginTop: 8 }}>
+          {hasEmail || saved ? "Alerts will go to your saved email." : "Without an email you still see the summary, the judgment and why no mail was sent."}{" "}
+          Fictional page, real pipeline. Or paste any public page below.
+        </div>
+        {err && <div className="error">{err}</div>}
+      </div>
+    </div>
   );
 }
 
@@ -920,6 +1001,46 @@ function AlertSetup({ boardId }: { boardId: Id<"boards"> }) {
 
 type WatchListItem = NonNullable<ReturnType<typeof useQuery<typeof api.watches.listWatches>>>[number];
 
+// Four steps a judge can follow without reading: captured, edited, judged, mailed.
+function DemoProgress({ w }: { w: WatchListItem }) {
+  const phase = w.demoPhase ?? 0;
+  const c = w.latestChange;
+  const captured = !!w.latestSnapshotId;
+  const steps: Array<[string, "done" | "wait" | "todo", string?]> = [
+    ["Original captured", captured ? "done" : w.checkCount === 0 || w.checkingSince ? "wait" : "todo"],
+    phase >= 2
+      ? ["Fee and deadline change published", "done"]
+      : phase === 1
+        ? ["Cosmetic edit published", "done"]
+        : ["Publish an edit", captured ? "todo" : "todo"],
+    c && phase >= 1
+      ? c.summary
+        ? ["Judged: " + importanceLabel(c.importance), "done"]
+        : ["Judging…", "wait"]
+      : ["Judged", phase >= 1 && w.checkingSince ? "wait" : "todo"],
+    c && phase >= 1 && c.summary
+      ? c.emailStatus === "sent" || c.emailStatus === "queued"
+        ? ["Emailed", "done"]
+        : c.emailStatus === "skipped"
+          ? ["Not emailed", "done", c.emailError ?? undefined]
+          : c.emailStatus === "failed"
+            ? ["Email failed", "done", c.emailError ?? undefined]
+            : ["Email pending", "wait"]
+      : ["Email", "todo"],
+  ];
+  return (
+    <ol className="demo-progress" data-pigeon-progress>
+      {steps.map(([label, state, note], i) => (
+        <li key={i} data-state={state} title={note}>
+          <span className="mark" aria-hidden="true">{state === "done" ? "✓" : state === "wait" ? "…" : "○"}</span>
+          {label}
+          {note && <span className="note"> · {note}</span>}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function WatchRow({ w }: { w: WatchListItem }) {
   const publishDemoChange = useMutation(api.watches.publishDemoChange);
   const [err, setErr] = useState<string | null>(null);
@@ -942,6 +1063,7 @@ function WatchRow({ w }: { w: WatchListItem }) {
           {w.status === "error" && <span className="error">{w.lastError}</span>}
           {w.focus && <span>focus: “{w.focus}”</span>}
         </div>
+        {isDemo && <DemoProgress w={w} />}
         {w.latestChange && (
           <div className="summary">
             <span className={"chip i" + (w.latestChange.importance ?? 0)}>{importanceLabel(w.latestChange.importance)}</span>{" "}
@@ -954,11 +1076,23 @@ function WatchRow({ w }: { w: WatchListItem }) {
       <div className="actions">
         {isDemo && demoPhase === 0 && w.latestSnapshotId && (
           <button
-            className="btn small primary"
-            title="Changes the demo notice and checks it right away"
+            className="btn small"
+            title="Rewords one sentence and bumps the timestamp and visitor count. Pigeon should stay quiet."
             onClick={() => {
               setErr(null);
-              publishDemoChange({ watchId: w._id }).catch((e) => setErr(errMsg(e)));
+              publishDemoChange({ watchId: w._id, step: "cosmetic" }).catch((e) => setErr(errMsg(e)));
+            }}
+          >
+            Publish a cosmetic edit
+          </button>
+        )}
+        {isDemo && demoPhase < 2 && w.latestSnapshotId && (
+          <button
+            className="btn small primary"
+            title="Changes the fee and the deadline and adds a closure, then checks right away"
+            onClick={() => {
+              setErr(null);
+              publishDemoChange({ watchId: w._id, step: "fee" }).catch((e) => setErr(errMsg(e)));
             }}
           >
             Publish a fee and deadline change
@@ -975,7 +1109,7 @@ function WatchRow({ w }: { w: WatchListItem }) {
             <CheckNowButton watchId={w._id} checkingSince={w.checkingSince} lastCheckedAt={w.lastCheckedAt} onError={setErr} label="Retry original capture" />
           )
         )}
-        {isDemo && demoPhase === 1 && <span className="hint">Change published</span>}
+        {isDemo && demoPhase === 2 && <span className="hint">Change published</span>}
         <CheckNowButton watchId={w._id} checkingSince={w.checkingSince} lastCheckedAt={w.lastCheckedAt} onError={setErr} />
       </div>
     </div>

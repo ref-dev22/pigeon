@@ -4,7 +4,7 @@
 
 The pages people actually need to watch rarely have an RSS feed or a mailing list: a school's notice board, an embassy's appointment page, the building's community announcements, a clinic's schedule, a government fee table, a landlord's portal. People reload them, or miss the change.
 
-Pigeon watches any web page on a schedule and emails you only when something meaningful changed, explained in two plain sentences, with the exact diff one click away. Households and small teams share a board, and the board has an email address: send it a link from the address you saved for alerts and it starts watching.
+Pigeon watches public web pages on a schedule and emails you only when something meaningful changed, explained in two plain sentences, with the diff of the captured text one click away. Households and small teams share a board, and the board has an email address: send it a link from the address you saved for alerts and it starts watching.
 
 Built for the [Convex All Gas Hackathon](https://www.convex.dev/hackathons/all-gas), September 2026.
 
@@ -13,9 +13,9 @@ Built for the [Convex All Gas Hackathon](https://www.convex.dev/hackathons/all-g
 ## What it does
 
 - **Watch a page** by pasting a URL, choosing how often to check (30 minutes to weekly), and optionally saying what you care about ("fees or deadlines").
-- **Only real changes count.** Timestamps, visitor counters, cache-busting tokens and "last updated" lines are normalised away before comparing, so you are not woken up by noise.
+- **Noise is filtered before anyone is emailed.** Timestamps, visitor counters, cache-busting tokens and "last updated" lines are normalised away before comparing; what is left is judged by a decision model and, after three alerts in a day, checked for novelty. The filter is a judgment, not a guarantee; the ten-case and six-case smoke tests in `docs/` show what it was checked against.
 - **Plain-language summary and an importance score** from 1 (cosmetic) to 5 (act now). A model writes it when a key is configured; a heuristic fallback still produces a useful line when it is not.
-- **Exact diff** of the page text, colour-coded, for every change.
+- **The diff** of the captured page text, colour-coded, for every change (after normalisation and size caps, so it is the text Pigeon compared, not the raw HTML).
 - **Email alerts** go to every member who opted in. Cosmetic changes are logged but not emailed.
 - **Add pages by email.** Email the board address a link (optionally with "hourly" or "daily" in the text) from the email you saved for alerts. Pigeon matches the sender to your board(s), adds the page, and replies with what it is now watching. Mail that fails SPF or DKIM is ignored.
 - **Shared boards** with invite links, live-updating for everyone at once.

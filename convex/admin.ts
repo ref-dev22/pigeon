@@ -217,6 +217,23 @@ export const usageReport = internalQuery({
   },
 });
 
+// SPEC-017 backfill: demos published under the two-phase scheme (phase 1 meant
+// "fee change published") become phase 2 so they read as finished.
+export const backfillDemoPhases = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const watches = await ctx.db.query("watches").collect();
+    let n = 0;
+    for (const w of watches) {
+      if (w.url.includes("/demo/notices?watch=") && w.demoPhase === 1 && w.intervalMinutes !== 10) {
+        await ctx.db.patch(w._id, { demoPhase: 2 });
+        n++;
+      }
+    }
+    return n;
+  },
+});
+
 // Test hook for SPEC-014 acceptance: relax one demo regardless of age.
 export const forceRelaxDemo = internalMutation({
   args: { watchId: v.id("watches") },

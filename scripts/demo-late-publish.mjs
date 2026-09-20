@@ -8,7 +8,7 @@ const b = await chromium.launch(); const p = await b.newPage({ viewport: { width
 await p.goto(app, { waitUntil: "networkidle" });
 await p.getByRole("button", { name: /try it now/i }).first().click();
 await p.waitForURL(/#\/board\//, { timeout: 30000 }); await p.waitForTimeout(2000);
-await p.getByRole("button", { name: /try a real change/i }).click();
+await p.getByRole("button", { name: /try a real change/i }).first().click();
 await p.waitForTimeout(12000);
 const m = (await p.textContent("body")).match(/demo\/notices\?watch=([a-z0-9]{32})/);
 if (!m) { console.log("no demo watch on page"); process.exit(1); }

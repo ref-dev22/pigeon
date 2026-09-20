@@ -427,3 +427,14 @@ code { padding: 3px 6px; border: 1px solid var(--line); border-radius: 3px; back
   .hero-reveal, .hero .actions, .hero-bottom, .auth-arrival { opacity: 1; transform: none; }
   .btn:hover, .brand:hover svg, .demo:hover, .mock:hover, .ex:hover, .btn:hover .button-arrow, .steps li:hover::after { transform: none; }
 }
+
+/* SPEC-016 / SPEC-017: demo card and progress line */
+.demo-card { border-color: var(--accent, #c9a227); }
+.demo-progress { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11px; color: var(--muted); }
+.demo-progress li { display: inline-flex; align-items: center; gap: 5px; }
+.demo-progress li[data-state="done"] { color: var(--ink, #222); }
+.demo-progress li[data-state="wait"] .mark { animation: pigeon-pulse 1.2s ease-in-out infinite; }
+.demo-progress .mark { display: inline-block; width: 14px; text-align: center; }
+.demo-progress .note { color: var(--muted); }
+@keyframes pigeon-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .demo-progress li[data-state="wait"] .mark { animation: none; } }

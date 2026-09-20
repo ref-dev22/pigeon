@@ -113,6 +113,7 @@ export const checkWatch = internalAction({
 
     // 3. Something changed (or this is the first look). Store the snapshot.
     const snapshotId = await ctx.runMutation(internal.watches.recordSnapshot, {
+      claim,
       watchId,
       markdown,
       contentHash,
@@ -153,6 +154,7 @@ export const checkWatch = internalAction({
     const diffCapped = capBytes(fullDiff, MAX_DIFF_BYTES);
     const diff = diffCapped.truncated ? diffCapped.text + "\n...(truncated)" : diffCapped.text;
     const changeId = await ctx.runMutation(internal.watches.recordChange, {
+      claim,
       watchId,
       fromSnapshotId: latest._id,
       toSnapshotId: snapshotId,
@@ -160,6 +162,8 @@ export const checkWatch = internalAction({
       addedLines,
       removedLines,
     });
+    // A superseded worker gets null back and stops here.
+    if (!changeId) return;
     // The baseline advances before summarising, so a hung model call cannot
     // cause the same change to be recorded twice; finalizePending picks up
     // whatever is left.

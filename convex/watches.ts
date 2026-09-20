@@ -36,6 +36,8 @@ export const listWatches = query({
               detectedAt: latestChange.detectedAt,
               addedLines: latestChange.addedLines,
               removedLines: latestChange.removedLines,
+              emailStatus: latestChange.emailStatus,
+              emailError: latestChange.emailError ?? null,
             }
           : null,
       });
@@ -227,20 +229,40 @@ export const createDemoWatch = mutation({
 });
 
 // Flip the demo notice to its changed version and check it right away.
+// step "cosmetic": phase 0 -> 1, a reworded sentence the pipeline should
+// ignore. step "fee": phase 0 or 1 -> 2, the change that matters (SPEC-017).
 export const publishDemoChange = mutation({
-  args: { watchId: v.id("watches") },
-  handler: async (ctx, { watchId }) => {
+  args: { watchId: v.id("watches"), step: v.optional(v.union(v.literal("cosmetic"), v.literal("fee"))) },
+  handler: async (ctx, { watchId, step }) => {
     const watch = await ctx.db.get(watchId);
     if (!watch) throw new ConvexError("Watch not found.");
     await requireMember(ctx, watch.boardId);
     if (!watch.url.includes("/demo/notices?watch=")) throw new ConvexError("Not a demo page.");
-    if ((watch.demoPhase ?? 0) >= 1) return;
+    const phase = watch.demoPhase ?? 0;
+    const which = step ?? "fee";
+    if (phase >= 2) return;
+    if (which === "cosmetic" && phase >= 1) return;
     if (!watch.latestSnapshotId) throw new ConvexError("Still capturing the original notice. Try again in a few seconds.");
+    if (watch.checkingSince && Date.now() - watch.checkingSince < 6 * 60_000) {
+      throw new ConvexError("A check is running. Try again in a few seconds.");
+    }
+    if (which === "cosmetic") {
+      await ctx.db.patch(watchId, { demoPhase: 1, ...(watch.status === "paused" ? { status: "ok" as const } : {}) });
+      await ctx.db.insert("events", {
+        boardId: watch.boardId,
+        kind: "demo.published",
+        message: "Demo notice edited cosmetically: one sentence reworded, timestamp and visitor count changed. Nothing that matters.",
+        watchId,
+        at: Date.now(),
+      });
+      await ctx.scheduler.runAfter(1500, internal.checks.checkWatch, { watchId });
+      return;
+    }
     // The demo is done after this check: fall back to a normal interval so the
     // page is not scraped every ten minutes for ever. A demo paused by the
     // daily expiry is resumed, otherwise the scheduled check would refuse to run.
     await ctx.db.patch(watchId, {
-      demoPhase: 1,
+      demoPhase: 2,
       intervalMinutes: DEFAULT_INTERVAL,
       ...(watch.status === "paused" ? { status: "ok" as const } : {}),
     });
@@ -285,7 +307,7 @@ export const updateWatch = mutation({
     const patch: Record<string, unknown> = {};
     if (intervalMinutes !== undefined) {
       const demoEligible =
-        isPerBoardDemo(watch.url) && (watch.demoPhase ?? 0) === 0 && Date.now() - watch.createdAt < DEMO_FAST_WINDOW_MS;
+        isPerBoardDemo(watch.url) && (watch.demoPhase ?? 0) < 2 && Date.now() - watch.createdAt < DEMO_FAST_WINDOW_MS;
       const minutes = clampInterval(intervalMinutes, watch.url, { demoEligible });
       patch.intervalMinutes = minutes;
       // Reschedule so a shorter interval takes effect now, not after the old one.
@@ -434,10 +456,13 @@ export const recordSnapshot = internalMutation({
     truncated: v.boolean(),
     firecrawlChangeStatus: v.optional(v.string()),
     firecrawlPreviousScrapeAt: v.optional(v.string()),
+    claim: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const watch = await ctx.db.get(args.watchId);
     if (!watch) return null;
+    // A worker whose claim was superseded must not write a snapshot.
+    if (args.claim !== undefined && watch.checkingSince !== undefined && watch.checkingSince !== args.claim) return null;
     const snapshotId = await ctx.db.insert("snapshots", {
       watchId: args.watchId,
       boardId: watch.boardId,
@@ -470,10 +495,12 @@ export const recordChange = internalMutation({
     diff: v.string(),
     addedLines: v.number(),
     removedLines: v.number(),
+    claim: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const watch = await ctx.db.get(args.watchId);
     if (!watch) return null;
+    if (args.claim !== undefined && watch.checkingSince !== undefined && watch.checkingSince !== args.claim) return null;
     const now = Date.now();
     const changeId = await ctx.db.insert("changes", {
       watchId: args.watchId,
@@ -543,7 +570,7 @@ export const relaxUnpublishedDemo = internalMutation({
   handler: async (ctx, { watchId }) => {
     const w = await ctx.db.get(watchId);
     if (!w || !isPerBoardDemo(w.url)) return false;
-    if ((w.demoPhase ?? 0) !== 0 || w.intervalMinutes !== 10) return false;
+    if ((w.demoPhase ?? 0) >= 2 || w.intervalMinutes !== 10) return false;
     if (Date.now() - w.createdAt < DEMO_FAST_WINDOW_MS) return false;
     const base = w.lastCheckedAt ?? w.createdAt;
     await ctx.db.patch(watchId, {

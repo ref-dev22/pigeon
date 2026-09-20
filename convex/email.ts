@@ -204,7 +204,8 @@ export const onMessageReceived = internalMutation({
     // The sender address is the only authority here, so insist that it is
     // authenticated. Anything that fails SPF/DKIM/DMARC is ignored silently.
     const auth = (message as { authentication_results?: Record<string, string> }).authentication_results;
-    if (auth && !(auth.dkim === "pass" || auth.spf === "pass") ) return;
+    // No authentication results, or neither check passed: ignore the message.
+    if (!auth || !(auth.dkim === "pass" || auth.spf === "pass")) return;
     if (auth && auth.dmarc && auth.dmarc !== "pass" && auth.dmarc !== "none") return;
     const sender = parseAddress(msg.from);
 
