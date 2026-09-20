@@ -95,6 +95,8 @@ On any board, "Try a real change on a demo notice board" creates a fictional not
 - The importance score is a judgment call by a model or a heuristic, not a guarantee. `docs/filter-eval.md` is a ten-case smoke test, not a proof.
 - A board watches at most 25 pages, at most every 30 minutes (10 for the demo page), an owner has at most 5 boards, and the deployment scrapes at most 700 pages a day, to stay within free tiers.
 - A guest who later creates a password account does not carry boards over; use the invite link.
+- A board where nobody saved an alert email has its pages paused after a day, with a note in the activity feed; save an email and press resume.
+- After three alerts from one page in a day, a fourth is sent only if the decision model finds it materially new; otherwise it is logged with the reason.
 - Email addresses are not verified by a confirmation mail. Inbound routing relies on the sender passing SPF or DKIM, and refuses to guess when an address maps to more than one board.
 
 ## Licence

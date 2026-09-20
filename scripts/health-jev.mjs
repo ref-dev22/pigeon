@@ -16,7 +16,7 @@ const questions = {
 };
 const res = await fetch("https://openrouter.ai/api/alpha/decisions", {
   method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
-  body: JSON.stringify({ model: "typesafe/jev-1.13", state: { context: "Pigeon watches web pages and emails a household when a page really changes. Demo pages under /demo/notices are the app's own fixtures. Budget is 700 scrapes a day.", report }, questions }),
+  body: JSON.stringify({ model: "typesafe/jev-1.13", state: { context: "Pigeon watches web pages and emails a household when a page really changes. Demo pages under /demo/notices are the app's own fixtures. Budget is 700 scrapes a day. totals.benignErrorWatches counts pages the visitor mistyped (not found, refused); they are not findings. A failedEmailsLast24h reason that mentions no confirmation is resolved bookkeeping, not a live failure. Boards without an email are guests who never set up alerts; their watches are paused after a day.", report }, questions }),
 });
 if (!res.ok) { console.error("jev http", res.status, await res.text()); process.exit(1); }
 const data = await res.json();
