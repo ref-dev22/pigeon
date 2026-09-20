@@ -17,16 +17,16 @@ export const runDueChecks = internalAction({
   args: {},
   handler: async (ctx): Promise<number> => {
     const due: Id<"watches">[] = await ctx.runQuery(internal.watches.dueWatches, { limit: 20 });
-    for (const watchId of due) {
-      await ctx.scheduler.runAfter(0, internal.checks.checkWatch, { watchId });
+    for (const [i, watchId] of due.entries()) {
+      await ctx.scheduler.runAfter(i * 4000, internal.checks.checkWatch, { watchId });
     }
     return due.length;
   },
 });
 
 export const checkWatch = internalAction({
-  args: { watchId: v.id("watches") },
-  handler: async (ctx, { watchId }): Promise<void> => {
+  args: { watchId: v.id("watches"), attempt: v.optional(v.number()) },
+  handler: async (ctx, { watchId, attempt }): Promise<void> => {
     const loaded = await ctx.runQuery(internal.watches.getWatchInternal, { watchId });
     if (!loaded) return;
     const { watch, latest } = loaded;
@@ -39,6 +39,12 @@ export const checkWatch = internalAction({
 
     const claim = await ctx.runMutation(internal.watches.claimCheck, { watchId });
     if (claim === null) return;
+    if (claim === "busy") {
+      // Too many scrapes in flight. Try again shortly, up to about five minutes.
+      const n = (attempt ?? 0) + 1;
+      if (n <= 20) await ctx.scheduler.runAfter(8000 + Math.floor(Math.random() * 8000), internal.checks.checkWatch, { watchId, attempt: n });
+      return;
+    }
 
     // 1. Fetch the page as markdown through Firecrawl. Firecrawl's own change
     //    tracking runs alongside our diff so the verdicts can be compared.
@@ -64,6 +70,7 @@ export const checkWatch = internalAction({
         claim,
         status: "error",
         lastError: trimError(e),
+        ...(isRateLimited(e) ? { retryInMs: 90_000 + Math.floor(Math.random() * 60_000) } : {}),
       });
       return;
     }
@@ -81,6 +88,7 @@ export const checkWatch = internalAction({
             ? String(doc.metadata.error) + (statusCode ? " (" + statusCode + ")" : "")
             : "HTTP " + statusCode,
         ),
+        ...(statusCode === 429 ? { retryInMs: 90_000 + Math.floor(Math.random() * 60_000) } : {}),
       });
       return;
     }
@@ -325,6 +333,11 @@ function formatWhen(ms: number): string {
 
 // Errors are shown to people in the watch row, so they are rewritten as
 // something a person can act on. Raw component errors never reach the UI.
+function isRateLimited(e: unknown): boolean {
+  const s = e instanceof Error ? e.message : String(e);
+  return /"status":429|\b429\b|rate limit/i.test(s);
+}
+
 function trimError(e: unknown): string {
   let s = e instanceof Error ? e.message : String(e);
   s = s.replace(/^Uncaught (ConvexError|Error): /, "").trim();
@@ -332,6 +345,9 @@ function trimError(e: unknown): string {
   if (json) {
     try {
       const o = JSON.parse(json[0]) as { code?: string; status?: number; message?: string };
+      if (o.code === "firecrawl_request_failed" && o.status === 429) {
+        return "Too many checks at once. Pigeon will try this page again in a couple of minutes.";
+      }
       if (o.code === "firecrawl_request_failed") {
         return "The page could not be fetched" + (o.status && o.status !== 200 ? " (HTTP " + o.status + ")" : "") + ". It may block automated readers; try again later.";
       }
@@ -340,9 +356,10 @@ function trimError(e: unknown): string {
       // not JSON after all
     }
   }
-  if (/^not found$/i.test(s) || /404/.test(s)) return "Page not found (404). Check the address.";
-  if (/(401|403)|forbidden|unauthori[sz]ed/i.test(s)) return "The page refused access. It may need a login.";
+  if (/\b429\b/.test(s)) return "Too many checks at once. Pigeon will try this page again in a couple of minutes.";
+  if (/^not found$/i.test(s) || /\b404\b/.test(s)) return "Page not found (404). Check the address.";
+  if (/\b(401|403)\b|forbidden|unauthori[sz]ed/i.test(s)) return "The page refused access. It may need a login.";
   if (/timeout|timed out/i.test(s)) return "The page took too long to respond. It will be tried again.";
-  if (/5dd/.test(s)) return "The site returned a server error. It will be tried again.";
+  if (/\b5\d\d\b/.test(s)) return "The site returned a server error. It will be tried again.";
   return s.length > 160 ? s.slice(0, 157) + "..." : s;
 }

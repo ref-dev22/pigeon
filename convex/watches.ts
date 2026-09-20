@@ -6,6 +6,7 @@ import type { Id } from "./_generated/dataModel";
 import { clampInterval, DEFAULT_INTERVAL, DEMO_FAST_WINDOW_MS, isPerBoardDemo, normalizeUrl, requireMember } from "./lib";
 
 const MAX_WATCHES_PER_BOARD = 25;
+const MAX_CONCURRENT_SCRAPES = 3;
 
 // Public queries take ids as strings and normalise them: a mistyped or truncated
 // link must show "not found", never a thrown error.
@@ -394,6 +395,12 @@ export const claimCheck = internalMutation({
     const now = Date.now();
     // Claims outlive the longest possible scrape (four Firecrawl attempts).
     if (watch.checkingSince && now - watch.checkingSince < 6 * 60_000) return null;
+    // Firecrawl rate-limits bursts. At most a few scrapes run at once across
+    // the deployment; the rest wait a few seconds and try again.
+    const active = (await ctx.db.query("watches").withIndex("by_nextCheck").collect()).filter(
+      (w) => w._id !== watchId && w.checkingSince && now - w.checkingSince < 90_000,
+    ).length;
+    if (active >= MAX_CONCURRENT_SCRAPES) return "busy" as const;
     const day = new Date(now).toISOString().slice(0, 10);
     const meter = await ctx.db
       .query("usage")
@@ -599,19 +606,32 @@ export const finishCheck = internalMutation({
     claim: v.optional(v.number()),
     status: v.union(v.literal("ok"), v.literal("error")),
     lastError: v.optional(v.string()),
+    // A transient failure (rate limit, timeout): keep the page's status, note
+    // the reason, and try again soon instead of waiting a full interval.
+    retryInMs: v.optional(v.number()),
     title: v.optional(v.string()),
     latestSnapshotId: v.optional(v.id("snapshots")),
   },
-  handler: async (ctx, { watchId, claim, status, lastError, title, latestSnapshotId }) => {
+  handler: async (ctx, { watchId, claim, status, lastError, title, latestSnapshotId, retryInMs }) => {
     const watch = await ctx.db.get(watchId);
     if (!watch) return;
     // A worker whose claim has been superseded must not overwrite state.
     if (claim !== undefined && watch.checkingSince !== undefined && watch.checkingSince !== claim) return;
     const now = Date.now();
     // Back off on repeated errors so a dead page does not burn credits.
+    if (retryInMs !== undefined) {
+      await ctx.db.patch(watchId, {
+        checkingSince: undefined,
+        lastCheckedAt: now,
+        nextCheckAt: now + retryInMs,
+        lastError,
+        status: watch.status === "paused" ? "paused" : watch.status === "ok" ? "ok" : "pending",
+      });
+      return;
+    }
     const interval = watch.intervalMinutes * 60_000;
     const next =
-      status === "error" ? now + Math.max(interval, 6 * 60 * 60_000) : now + interval;
+      status === "error" ? now + Math.max(interval, 30 * 60_000) : now + interval;
     await ctx.db.patch(watchId, {
       // A pause requested while the check was running wins.
       status: watch.status === "paused" ? "paused" : status,

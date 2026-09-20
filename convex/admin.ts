@@ -253,3 +253,52 @@ export const inviteLinkFor = internalQuery({
     return b ? (process.env.APP_URL ?? "") + "/#/join/" + b.inviteCode : null;
   },
 });
+
+// Per-board test matrix: every watch with its latest outcome.
+export const boardReport = internalQuery({
+  args: { boardId: v.id("boards") },
+  handler: async (ctx, { boardId }) => {
+    const watches = await ctx.db.query("watches").withIndex("by_board", (q) => q.eq("boardId", boardId)).collect();
+    const out = [];
+    for (const w of watches) {
+      const changes = await ctx.db.query("changes").withIndex("by_watch", (q) => q.eq("watchId", w._id)).order("desc").take(3);
+      out.push({
+        id: w._id, url: w.url, title: w.title ?? null, status: w.status, lastError: w.lastError ?? null,
+        checks: w.checkCount, changes: w.changeCount,
+        recent: changes.map((c) => ({ importance: c.importance ?? null, email: c.emailStatus, reason: c.emailError ?? null, lines: "+" + c.addedLines + "/-" + c.removedLines, summary: (c.summary ?? "").slice(0, 220) })),
+      });
+    }
+    return out;
+  },
+});
+
+export const checkAll = internalMutation({
+  args: { boardId: v.id("boards") },
+  handler: async (ctx, { boardId }) => {
+    const watches = await ctx.db.query("watches").withIndex("by_board", (q) => q.eq("boardId", boardId)).collect();
+    let n = 0;
+    for (const w of watches) {
+      if (w.status === "paused") continue;
+      await ctx.scheduler.runAfter(n * 1500, internal.checks.checkWatch, { watchId: w._id });
+      n++;
+    }
+    return n;
+  },
+});
+
+// Operator: set every active watch on a board to one interval; pause errored ones if asked.
+export const setBoardInterval = internalMutation({
+  args: { boardId: v.id("boards"), intervalMinutes: v.number(), pauseErrors: v.optional(v.boolean()) },
+  handler: async (ctx, { boardId, intervalMinutes, pauseErrors }) => {
+    const watches = await ctx.db.query("watches").withIndex("by_board", (q) => q.eq("boardId", boardId)).collect();
+    let n = 0;
+    for (const w of watches) {
+      if (pauseErrors && w.status === "error") { await ctx.db.patch(w._id, { status: "paused" }); n++; continue; }
+      if (w.status === "paused") continue;
+      const base = w.lastCheckedAt ?? w.createdAt;
+      await ctx.db.patch(w._id, { intervalMinutes, nextCheckAt: base + intervalMinutes * 60_000 });
+      n++;
+    }
+    return n;
+  },
+});
