@@ -111,10 +111,13 @@ export function stabilize(markdown: string): string {
   return markdown
     .split("\n")
     .map((line) =>
-      // Times and dates are kept: "closes at 20:00" is real content. Only
-      // machine noise is normalised: big counters, long query strings, hashes.
-      line
-        .replace(/\b\d{1,3}(,\d{3})+\b/g, "<n>")
+      // Times, dates and amounts are kept: "closes at 20:00" and "AED 1,500"
+      // are real content. Only machine noise is normalised: counters on lines
+      // that say they are counters, long query strings, hashes.
+      (/\b(visitors?|views?|online now|members online|followers|likes|hits|page ?views)\b/i.test(line)
+        ? line.replace(/\b\d{1,3}(,\d{3})+\b|\b\d{4,}\b/g, "<n>")
+        : line
+      )
         .replace(/\?[A-Za-z0-9_=&%.-]{20,}/g, "?<q>")
         .replace(/[A-Fa-f0-9]{24,}/g, "<hex>")
         .trimEnd(),

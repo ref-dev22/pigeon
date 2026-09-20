@@ -47,6 +47,8 @@ export const checkWatch = internalAction({
             onlyMainContent: true,
             blockAds: true,
             removeBase64Images: true,
+            // Always fetch fresh: Firecrawl may otherwise serve a cached copy.
+            maxAge: 0,
             timeout: 45_000,
           });
     } catch (e) {
@@ -79,8 +81,10 @@ export const checkWatch = internalAction({
     const fcStatus = typeof ct.changeStatus === "string" ? ct.changeStatus : undefined;
     const fcPrev = typeof ct.previousScrapeAt === "string" ? ct.previousScrapeAt : undefined;
 
-    // 2. Nothing meaningful changed: record the check and move on.
-    if (latest && latest.contentHash === contentHash) {
+    // 2. Nothing meaningful changed: record the check and move on. The old
+    //    hash is recomputed so a change to the normaliser never looks like a
+    //    page change.
+    if (latest && hashText(stabilize(latest.markdown)) === contentHash) {
       await ctx.runMutation(internal.watches.finishCheck, {
         watchId,
         status: "ok",

@@ -168,6 +168,70 @@ export const addWatch = mutation({
   },
 });
 
+// One fictional demo notice per board, checked through the real pipeline.
+// Idempotent: a second click returns the existing watch.
+export const createDemoWatch = mutation({
+  args: { boardId: v.id("boards") },
+  handler: async (ctx, { boardId }) => {
+    const { userId } = await requireMember(ctx, boardId);
+    const existing = (
+      await ctx.db
+        .query("watches")
+        .withIndex("by_board", (q) => q.eq("boardId", boardId))
+        .collect()
+    ).find((w) => w.url.includes("/demo/notices?watch="));
+    if (existing) return existing._id;
+    const site = (process.env.APP_URL ?? process.env.CONVEX_SITE_URL ?? "").replace(/\/$/, "");
+    const now = Date.now();
+    const watchId = await ctx.db.insert("watches", {
+      boardId,
+      url: site + "/demo/notices",
+      intervalMinutes: 10,
+      focus: "fees, dates or closures",
+      addedBy: userId,
+      source: "web",
+      status: "pending",
+      nextCheckAt: now,
+      checkCount: 0,
+      changeCount: 0,
+      createdAt: now,
+      demoPhase: 0,
+    });
+    await ctx.db.patch(watchId, { url: site + "/demo/notices?watch=" + watchId });
+    await ctx.db.insert("events", {
+      boardId,
+      kind: "watch.added",
+      message: "Started watching the demo notice board (fictional page, real pipeline).",
+      watchId,
+      at: now,
+    });
+    await ctx.scheduler.runAfter(0, internal.checks.checkWatch, { watchId });
+    return watchId;
+  },
+});
+
+// Flip the demo notice to its changed version and check it right away.
+export const publishDemoChange = mutation({
+  args: { watchId: v.id("watches") },
+  handler: async (ctx, { watchId }) => {
+    const watch = await ctx.db.get(watchId);
+    if (!watch) throw new Error("Watch not found.");
+    await requireMember(ctx, watch.boardId);
+    if (!watch.url.includes("/demo/notices?watch=")) throw new Error("Not a demo page.");
+    if ((watch.demoPhase ?? 0) >= 1) return;
+    if (!watch.latestSnapshotId) throw new Error("Still capturing the original notice. Try again in a few seconds.");
+    await ctx.db.patch(watchId, { demoPhase: 1, checkingSince: undefined });
+    await ctx.db.insert("events", {
+      boardId: watch.boardId,
+      kind: "demo.published",
+      message: "Demo notice changed: fee AED 1,000 → 1,500, deadline 15 → 10 October, hall closure added.",
+      watchId,
+      at: Date.now(),
+    });
+    await ctx.scheduler.runAfter(1500, internal.checks.checkWatch, { watchId });
+  },
+});
+
 export const checkNow = mutation({
   args: { watchId: v.id("watches") },
   handler: async (ctx, { watchId }) => {

@@ -54,6 +54,8 @@ export default defineSchema({
     lastError: v.optional(v.string()),
     // Set while a check is running so overlapping triggers do not double-scrape.
     checkingSince: v.optional(v.number()),
+    // For the app's own demo notice page: 0 = original notice, 1 = changed.
+    demoPhase: v.optional(v.number()),
     lastCheckedAt: v.optional(v.number()),
     nextCheckAt: v.number(),
     lastChangedAt: v.optional(v.number()),

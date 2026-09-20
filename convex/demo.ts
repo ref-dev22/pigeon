@@ -1,9 +1,17 @@
-import { httpAction } from "./_generated/server";
+import { v } from "convex/values";
+import { httpAction, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 
-// A public notice page that rewrites itself every ten minutes so anyone can
-// watch it and receive a real alert without waiting for the world to change.
-// Served by the app at /demo/notices. The edits are deterministic from the
-// clock, so two checks in the same window see identical text.
+// A public notice page served by the app at /demo/notices so anyone can
+// watch a page and see a real alert without waiting for the world to change.
+//
+// Two modes:
+//   /demo/notices              rewrites one or two notices every ten minutes
+//                              (deterministic from the clock).
+//   /demo/notices?watch=<id>   a fixed fictional notice tied to one watch;
+//                              its content flips once when the board owner
+//                              clicks "Publish a fee and deadline change".
 
 const WINDOW_MS = 10 * 60_000;
 
@@ -32,12 +40,47 @@ const EXTRA = [
   "Bookings for the community hall reopen on the 1st; residents get priority for two weeks.",
 ];
 
-export const notices = httpAction(async () => {
+const FIXED: Record<number, string[]> = {
+  0: [
+    "The main pool is open daily from 07:00 to 21:00.",
+    "Parking permits for next year can be requested from 1 October at the management office. The fee is AED 1,000 per vehicle, due by 15 October.",
+    "The gym opens 06:00 to 22:00 every day.",
+  ],
+  1: [
+    "The main pool is open daily from 07:00 to 21:00.",
+    "Parking permits for next year can be requested from 1 October at the management office. The fee is AED 1,500 per vehicle, due by 10 October.",
+    "The gym opens 06:00 to 22:00 every day.",
+    "New: the community hall is closed for renovation until the end of next month.",
+  ],
+};
+
+export const demoPhase = internalQuery({
+  args: { watchId: v.string() },
+  handler: async (ctx, { watchId }) => {
+    const w = await ctx.db.get(watchId as Id<"watches">).catch(() => null);
+    return w ? (w.demoPhase ?? 0) : null;
+  },
+});
+
+export const notices = httpAction(async (ctx, req) => {
+  const url = new URL(req.url);
+  const watchParam = url.searchParams.get("watch");
   const bucket = Math.floor(Date.now() / WINDOW_MS);
-  const pick = (arr: string[], salt: number) => arr[(bucket + salt) % arr.length];
-  const visitors = 1000 + ((bucket * 7919) % 1500);
-  const updated = new Date(bucket * WINDOW_MS).toISOString().replace("T", " ").slice(0, 16);
-  const extra = pick(EXTRA, 1);
+  let items: string[];
+  let updated: string;
+  let visitors: number;
+  if (watchParam) {
+    const phase = (await ctx.runQuery(internal.demo.demoPhase, { watchId: watchParam })) ?? 0;
+    items = FIXED[phase] ?? FIXED[0];
+    updated = phase === 0 ? "2026-09-01 09:00" : "2026-09-20 09:00";
+    visitors = phase === 0 ? 1234 : 1987;
+  } else {
+    const pick = (arr: string[], salt: number) => arr[(bucket + salt) % arr.length];
+    const extra = pick(EXTRA, 1);
+    items = [pick(POOL, 0), pick(PARKING, 2), pick(GYM, 3), ...(extra ? [extra] : [])];
+    updated = new Date(bucket * WINDOW_MS).toISOString().replace("T", " ").slice(0, 16);
+    visitors = 1000 + ((bucket * 7919) % 1500);
+  }
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Riverside Court Community Notices</title>
 <meta name="robots" content="noindex">
@@ -46,18 +89,12 @@ export const notices = httpAction(async () => {
 <h1>Community notices</h1>
 <p><small>Last updated: ${updated} · Visitors online now: ${visitors.toLocaleString()}</small></p>
 <ul>
-<li>${pick(POOL, 0)}</li>
-<li>${pick(PARKING, 2)}</li>
-<li>${pick(GYM, 3)}</li>
-${extra ? `<li>${extra}</li>` : ""}
+${items.map((t) => "<li>" + t + "</li>").join("\n")}
 </ul>
-<p><small>This is Pigeon's demo notice board. It rewrites one or two notices every ten minutes so you can watch it and receive a real alert. Nothing here is real.</small></p>
+<p><small>This is Pigeon's demo notice board, a fictional page checked through Pigeon's real pipeline. Nothing here is real.</small></p>
 </body></html>`;
   return new Response(html, {
     status: 200,
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-store",
-    },
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
   });
 });
