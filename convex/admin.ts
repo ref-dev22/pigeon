@@ -123,7 +123,7 @@ export const healthReport = internalQuery({
 
     return {
       generatedAt: new Date(now).toISOString(),
-      totals: { boards: boards.length, boardsWithoutEmail, watches: watches.length, changes: changes.length, activeWatches: watches.filter((w) => w.status !== "paused").length, benignErrorWatches, scrapesToday, dailyBudget: 700 },
+      totals: { boards: boards.length, boardsWithoutEmail, watches: watches.length, changes: changes.length, activeWatches: watches.filter((w) => w.status !== "paused").length, benignErrorWatches, scrapesToday, dailyBudget: 40 },
       findings: {
         staleClaims,
         overdueChecks: overdue,
@@ -299,6 +299,22 @@ export const setBoardInterval = internalMutation({
       await ctx.db.patch(w._id, { intervalMinutes, nextCheckAt: base + intervalMinutes * 60_000 });
       n++;
     }
+    return n;
+  },
+});
+
+export const usageByDay = internalQuery({
+  args: {},
+  handler: async (ctx) => (await ctx.db.query("usage").collect()).map((u) => ({ day: u.day, scrapes: u.scrapes })).sort((a, b) => (a.day < b.day ? -1 : 1)),
+});
+
+// Emergency brake: pause every active watch on the deployment.
+export const pauseAllWatches = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const watches = await ctx.db.query("watches").collect();
+    let n = 0;
+    for (const w of watches) if (w.status !== "paused") { await ctx.db.patch(w._id, { status: "paused" }); n++; }
     return n;
   },
 });

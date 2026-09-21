@@ -382,7 +382,9 @@ export const getWatchInternal = internalQuery({
 // Scrapes allowed per UTC day across the whole deployment (Firecrawl's free
 // tier is 1,000 credits a month plus hackathon credits; this keeps a runaway
 // guest from spending them all).
-const DAILY_SCRAPE_BUDGET = 700;
+// Firecrawl free tier is 1,000 scrapes a MONTH (renews 19 Oct 2026). Kept low
+// through judging so the demo always has credit.
+const DAILY_SCRAPE_BUDGET = 40;
 
 // Claim a check so two triggers (cron plus "Check now") never scrape twice,
 // and spend one unit of the daily budget. Returns the claim token (a
@@ -406,7 +408,8 @@ export const claimCheck = internalMutation({
       .query("usage")
       .withIndex("by_day", (q) => q.eq("day", day))
       .unique();
-    if ((meter?.scrapes ?? 0) >= DAILY_SCRAPE_BUDGET) {
+    // The judge demo is small and essential; it is counted but never refused.
+    if ((meter?.scrapes ?? 0) >= DAILY_SCRAPE_BUDGET && !isPerBoardDemo(watch.url)) {
       // Out of budget for today: push the check to tomorrow, do not scrape.
       await ctx.db.patch(watchId, { nextCheckAt: now + 60 * 60_000, lastError: "Daily check budget reached; retrying later." });
       return null;
