@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { clampInterval, DEFAULT_INTERVAL, DEMO_FAST_WINDOW_MS, isPerBoardDemo, normalizeUrl, requireMember } from "./lib";
+import { deleteQuestionRows, questionsView } from "./questions";
 
 const MAX_WATCHES_PER_BOARD = 25;
 const MAX_CONCURRENT_SCRAPES = 3;
@@ -41,6 +42,7 @@ export const listWatches = query({
               emailError: latestChange.emailError ?? null,
             }
           : null,
+        ...(await questionsView(ctx, w)),
       });
     }
     return out.sort(
@@ -121,11 +123,22 @@ export const getChange = query({
     const watch = await ctx.db.get(change.watchId);
     const to = await ctx.db.get(change.toSnapshotId);
     const from = change.fromSnapshotId ? await ctx.db.get(change.fromSnapshotId) : null;
+    // SPEC-019: answer transitions this change caused.
+    const answerRows = await ctx.db
+      .query("answers")
+      .withIndex("by_change", (q) => q.eq("changeId", changeId))
+      .collect();
+    const answerMoves = [];
+    for (const r of answerRows) {
+      const q = await ctx.db.get(r.questionId);
+      answerMoves.push({ ...r, question: q?.text ?? "(question removed)" });
+    }
     return {
       change,
       watch,
       before: from?.markdown ?? null,
       after: to?.markdown ?? null,
+      answerMoves,
     };
   },
 });
@@ -340,6 +353,11 @@ export const removeWatch = mutation({
       .withIndex("by_watch", (q) => q.eq("watchId", watchId))
       .collect();
     for (const r of changes) await ctx.db.delete(r._id);
+    const questions = await ctx.db
+      .query("questions")
+      .withIndex("by_watch", (q) => q.eq("watchId", watchId))
+      .collect();
+    for (const q of questions) await deleteQuestionRows(ctx.db, q._id);
     await ctx.db.delete(watchId);
     await ctx.db.insert("events", {
       boardId: watch.boardId,

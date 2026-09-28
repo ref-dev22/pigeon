@@ -6,6 +6,7 @@ import { internalAction, type ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { capBytes, hashText, isCosmeticDiff, stabilize } from "./lib";
 import { decideNovelty, decideImportance, heuristicSummary, modelSummary, type Summary } from "./summarize";
+import { evaluateForChange, type ChangeReading } from "./questions";
 
 const firecrawl = new FirecrawlClient(components.firecrawl);
 
@@ -143,6 +144,9 @@ export const checkWatch = internalAction({
         title,
         latestSnapshotId: snapshotId,
       });
+      // SPEC-019: read any questions asked while the page was first being
+      // captured, and propose questions this page verifiably answers.
+      await ctx.scheduler.runAfter(0, internal.questions.onFirstCapture, { watchId });
       return;
     }
 
@@ -250,6 +254,39 @@ async function summariseAndNotify(
     importance: summary.importance,
     summarySource: summary.source,
   });
+  // SPEC-019: a page that carries a question emails only when the answer
+  // moves (now answered, changed, no longer on the page). Every other change
+  // on it is logged, not emailed. Pages without a question are unaffected, and
+  // if a question could not be read against this capture, or reading fails,
+  // the page's own rules below apply as before.
+  const changed = await ctx.runQuery(internal.watches.getChangeInternal, { changeId });
+  if (changed) {
+    let q: ChangeReading | null = null;
+    try {
+      q = await evaluateForChange(ctx, {
+        watchId: changed.watchId,
+        changeId,
+        snapshotId: changed.toSnapshotId,
+        diff,
+        cosmetic: isCosmeticDiff(diff),
+      });
+    } catch (e) {
+      console.error("questions: reading against this change failed", e);
+    }
+    if (q?.alertIds.length) {
+      await ctx.runMutation(internal.email.sendAnswerEmail, { changeId, answerIds: q.alertIds });
+      return;
+    }
+    if (q?.hasQuestions && q.allRead) {
+      await ctx.runMutation(internal.email.sendChangeEmail, {
+        changeId,
+        skipReason: q.capped
+          ? "Your answer moved again, but Pigeon has already written three times today about this question. Logged, not emailed."
+          : "Pigeon is watching your question on this page, and its answer did not change. Logged, not emailed.",
+      });
+      return;
+    }
+  }
   // Alert fatigue gate: a page that has already produced three alerts today
   // is asked one more cheap question before a fourth email goes out. A page
   // flipping between two states, or a demo left running, stops here.

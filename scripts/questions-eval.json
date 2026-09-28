@@ -1,0 +1,32 @@
+[
+  {
+    "url": "https://www.convex.dev/pricing",
+    "questions": [
+      { "q": "How much does the Professional plan cost per developer per month?", "expect": "$25 per developer per month" },
+      { "q": "How many function calls per month are included on the free plan?", "expect": "1M (1 million) included" },
+      { "q": "What is Convex's refund policy?", "expect": "not stated" }
+    ]
+  },
+  {
+    "url": "https://www.firecrawl.dev/pricing",
+    "questions": [
+      { "q": "How many credits per month does the free plan include?", "expect": "1,000 credits per month" },
+      { "q": "What does the Hobby plan cost per month when billed yearly?", "expect": "$16 per month billed yearly" },
+      { "q": "Does Firecrawl offer a student discount?", "expect": "not stated, unless the page says so" }
+    ]
+  },
+  {
+    "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+    "questions": [
+      { "q": "What are the dates of the October 2026 FOMC meeting?", "expect": "October 27-28, 2026" },
+      { "q": "When were the minutes of the January 2026 meeting released?", "expect": "February 18, 2026" }
+    ]
+  },
+  {
+    "url": "https://u.ae/en/information-and-services/public-holidays-and-religious-affairs/public-holidays",
+    "questions": [
+      { "q": "How many days off are given for National Day?", "expect": "2 days: 2 and 3 December" },
+      { "q": "What is the minimum wage in the UAE?", "expect": "not stated" }
+    ]
+  }
+]

@@ -1,7 +1,7 @@
 // SPEC-016/017 acceptance: fresh guest, demo card first, cosmetic edit stays
 // quiet, fee change alerts. Optional email as argv[2]. Prints the progress line.
 import { chromium } from "playwright";
-const app = "https://marvelous-dinosaur-465.convex.site/";
+const app = process.env.PIGEON_URL ?? "https://marvelous-dinosaur-465.convex.site/";
 const email = process.argv[2];
 const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1280, height: 900 } });
 const errs = []; p.on("pageerror", (e) => errs.push(String(e)));

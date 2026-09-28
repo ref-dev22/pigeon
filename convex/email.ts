@@ -4,6 +4,7 @@ import { components, internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { clampInterval, DEFAULT_INTERVAL, extractUrls } from "./lib";
+import { plainQuote } from "./facts";
 
 // Pigeon uses one AgentMail inbox for the whole deployment
 // (AGENTMAIL_INBOX_ID). It sends every change alert, and it accepts links:
@@ -143,6 +144,154 @@ export const sendChangeEmail = internalMutation({
         boardId: change.boardId,
         kind: "email.queued",
         message: "Queued an alert email to " + recipients.length + " member(s) about " + title,
+        watchId: watch._id,
+        changeId,
+        at: Date.now(),
+      });
+    } catch (e) {
+      await ctx.db.patch(changeId, {
+        emailStatus: "failed",
+        emailError: e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300),
+      });
+    }
+  },
+});
+
+// SPEC-019: a question's answer moved. The email leads with the answer, in
+// the page's own words, instead of "the page changed". Delivery is tracked on
+// the change exactly like a change email.
+export const sendAnswerEmail = internalMutation({
+  args: { changeId: v.id("changes"), answerIds: v.array(v.id("answers")) },
+  handler: async (ctx, { changeId, answerIds }) => {
+    const change = await ctx.db.get(changeId);
+    if (!change) return;
+    const watch = await ctx.db.get(change.watchId);
+    const board = await ctx.db.get(change.boardId);
+    if (!watch || !board) return;
+    const items: Array<{ row: Doc<"answers">; question: string }> = [];
+    for (const id of answerIds) {
+      const row = await ctx.db.get(id);
+      if (!row) continue;
+      const q = await ctx.db.get(row.questionId);
+      if (q) items.push({ row, question: q.text });
+    }
+    if (items.length === 0) return;
+    const raised = Math.max(change.importance ?? 3, 4);
+    const inboxId = board.inboxId ?? process.env.AGENTMAIL_INBOX_ID;
+    const memberships = await ctx.db
+      .query("memberships")
+      .withIndex("by_board", (q) => q.eq("boardId", change.boardId))
+      .collect();
+    const recipients: string[] = [];
+    for (const m of memberships) {
+      if (!m.notify) continue;
+      const user = await ctx.db.get(m.userId);
+      const email = m.notifyEmail ?? user?.email;
+      if (email && !recipients.includes(email)) recipients.push(email);
+    }
+    const title = watch.title ?? watch.url;
+    if (!inboxId) {
+      await ctx.db.patch(changeId, { emailStatus: "skipped", emailError: "Board has no email inbox yet.", importance: raised });
+      return;
+    }
+    if (recipients.length === 0) {
+      await ctx.db.patch(changeId, {
+        emailStatus: "skipped",
+        emailError: "Your answer moved, but no member has an email address for alerts.",
+        importance: raised,
+      });
+      return;
+    }
+
+    const when = (ms?: number) =>
+      ms
+        ? new Date(ms).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dubai" }) +
+          " GST"
+        : "";
+    const lead = (kind: Doc<"answers">["kind"]) =>
+      kind === "answered" ? "Now answered" : kind === "withdrawn" ? "No longer on the page" : "Your answer changed";
+    const first = items[0];
+    const subjectCore =
+      first.row.kind === "withdrawn"
+        ? "No longer on the page: " + first.question
+        : first.row.kind === "answered"
+          ? "Now answered: " + (first.row.headline ?? first.row.answer ?? first.question)
+          : "Now: " + (first.row.headline ?? first.row.answer ?? first.question);
+    const subject = subjectCore.length > 110 ? subjectCore.slice(0, 107).replace(/\s+\S*$/, "") + "…" : subjectCore;
+    const appUrl = process.env.APP_URL ?? process.env.CONVEX_SITE_URL ?? "";
+    const link = appUrl ? appUrl.replace(/\/$/, "") + "/#/change/" + changeId : "";
+
+    const textParts: string[] = [];
+    const htmlParts: string[] = [];
+    const box = (label: string, q: string | undefined, colour: string) =>
+      q
+        ? '<p style="margin:10px 0 2px;font-size:12px;color:#6b7280">' + escapeHtml(label) + "</p>" +
+          '<blockquote style="margin:0;padding:8px 12px;border-left:3px solid ' + colour +
+          ';background:#f9fafb;font-size:14px;white-space:pre-wrap">' + escapeHtml(q) + "</blockquote>"
+        : "";
+    for (const { row: raw, question } of items) {
+      const r = {
+        ...raw,
+        quote: raw.quote === undefined ? undefined : plainQuote(raw.quote),
+        prevQuote: raw.prevQuote === undefined ? undefined : plainQuote(raw.prevQuote),
+      };
+      const nowLabel = "Now, as captured " + when(r.capturedAt) + (r.section ? " under “" + r.section + "”" : "");
+      const beforeLabel = (r.kind === "withdrawn" ? "Last seen " : "Before, as captured ") + when(r.prevCapturedAt);
+      textParts.push(
+        lead(r.kind) + ". You asked: " + question + "\n" +
+          (r.kind === "withdrawn"
+            ? "Pigeon can no longer find this on the page.\n" + beforeLabel + ":\n  “" + (r.prevQuote ?? "") + "”\n"
+            : (r.answer ? r.answer + "\n" : "") +
+              nowLabel + ":\n  “" + (r.quote ?? "") + "”\n" +
+              (r.prevQuote ? beforeLabel + ":\n  “" + r.prevQuote + "”\n" : "")),
+      );
+      htmlParts.push(
+        '<p style="margin:0 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#6b7280">Pigeon · ' +
+          escapeHtml(lead(r.kind)) + "</p>" +
+          '<p style="margin:0 0 6px;font-size:14px;color:#374151">You asked: <b>' + escapeHtml(question) + "</b></p>" +
+          (r.kind === "withdrawn"
+            ? '<p style="font-size:16px;margin:0 0 4px">Pigeon can no longer find this on the page.</p>' + box(beforeLabel, r.prevQuote, "#9ca3af")
+            : (r.answer ? '<p style="font-size:17px;line-height:1.45;margin:0 0 4px">' + escapeHtml(r.answer) + "</p>" : "") +
+              box(nowLabel, r.quote, "#16a34a") +
+              box(beforeLabel, r.prevQuote, "#9ca3af")),
+      );
+    }
+    const footer = "Quotes are the page's own lines as Pigeon read them. Pigeon writes only when your answer moves.";
+    const text =
+      textParts.join("\n") + "\nPage: " + title + "\n" + watch.url + "\n" +
+      (link ? "The change, with the exact difference: " + link + "\n" : "") +
+      "\n" + footer + " You are on the board “" + board.name + "”.";
+    const html =
+      '<div style="font-family:ui-sans-serif,system-ui,sans-serif;max-width:560px;color:#1f2937">' +
+      htmlParts.join('<hr style="border:0;border-top:1px solid #e5e7eb;margin:16px 0">') +
+      '<p style="margin:16px 0 4px;font-size:13px"><a href="' + escapeHtml(watch.url) + '" style="color:#2563eb">' + escapeHtml(title) + "</a>" +
+      (link ? ' · <a href="' + escapeHtml(link) + '" style="color:#2563eb">see the exact difference</a>' : "") + "</p>" +
+      '<hr style="border:0;border-top:1px solid #e5e7eb;margin:16px 0">' +
+      '<p style="font-size:12px;color:#6b7280;margin:0">' + escapeHtml(footer) + " You are on the board “" + escapeHtml(board.name) + "”.</p>" +
+      "</div>";
+    try {
+      const outboundId = await agentmail.sendMessage(ctx, inboxId, {
+        to: recipients,
+        subject,
+        text,
+        html,
+        labels: ["pigeon", "answer"],
+        headers: { "X-Pigeon-Change": String(changeId) },
+      });
+      await ctx.db.patch(changeId, {
+        emailStatus: "queued",
+        emailError: undefined,
+        emailOutboundId: String(outboundId),
+        importance: raised,
+      });
+      const delays = [20_000, 90_000, 5 * 60_000, 20 * 60_000, 60 * 60_000, 6 * 60 * 60_000];
+      for (const [i, delay] of delays.entries()) {
+        await ctx.scheduler.runAfter(delay, internal.email.syncEmailStatus, { changeId, final: i === delays.length - 1 });
+      }
+      await ctx.db.insert("events", {
+        boardId: change.boardId,
+        kind: "email.queued",
+        message: lead(first.row.kind) + ": emailed " + recipients.length + " member(s) about “" + first.question + "”",
         watchId: watch._id,
         changeId,
         at: Date.now(),

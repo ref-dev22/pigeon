@@ -63,10 +63,86 @@ export default defineSchema({
     checkCount: v.number(),
     changeCount: v.number(),
     createdAt: v.number(),
+    // SPEC-019: questions this page verifiably answers, proposed by the model
+    // from one capture and checked in code.
+    suggestions: v.optional(
+      v.array(v.object({ question: v.string(), answer: v.string(), quote: v.string(), section: v.optional(v.string()) })),
+    ),
+    suggestionsStatus: v.optional(v.union(v.literal("pending"), v.literal("ready"), v.literal("none"))),
+    suggestionsSnapshotId: v.optional(v.id("snapshots")),
   })
     .index("by_board", ["boardId"])
     .index("by_nextCheck", ["status", "nextCheckAt"])
     .index("by_board_url", ["boardId", "url"]),
+
+  // SPEC-019: a question a member asked about a watched page. Pigeon watches
+  // the life of the fact that answers it: not stated yet, answered, changed,
+  // no longer on the page.
+  questions: defineTable({
+    boardId: v.id("boards"),
+    watchId: v.id("watches"),
+    text: v.string(),
+    askedBy: v.optional(v.id("users")),
+    source: v.union(v.literal("typed"), v.literal("suggested")),
+    // The watch's check count when asked, for the "checked N times since you asked" receipt.
+    checksAtAsk: v.optional(v.number()),
+    status: v.union(v.literal("evaluating"), v.literal("answered"), v.literal("waiting")),
+    // The page's own lines that answer it now, with where and when.
+    quote: v.optional(v.string()),
+    tableHeader: v.optional(v.string()),
+    section: v.optional(v.string()),
+    answer: v.optional(v.string()),
+    headline: v.optional(v.string()),
+    isoDate: v.optional(v.string()),
+    relative: v.optional(v.boolean()),
+    capturedAt: v.optional(v.number()),
+    // Since when the page has not stated it (status "waiting").
+    waitingSince: v.optional(v.number()),
+    // Last transition that mattered, for the card's chip.
+    lastKind: v.optional(v.string()),
+    lastTransitionAt: v.optional(v.number()),
+    evaluatedSnapshotId: v.optional(v.id("snapshots")),
+    note: v.optional(v.string()),
+    truncatedPage: v.optional(v.boolean()),
+    createdAt: v.number(),
+  })
+    .index("by_watch", ["watchId", "createdAt"])
+    .index("by_board", ["boardId", "createdAt"]),
+
+  // SPEC-019: the fact's history. One row per reading that mattered: the first
+  // reading, and every transition after it. Quotes are stored here so they
+  // survive snapshot pruning.
+  answers: defineTable({
+    questionId: v.id("questions"),
+    watchId: v.id("watches"),
+    boardId: v.id("boards"),
+    kind: v.union(
+      v.literal("first"),
+      v.literal("answered"),
+      v.literal("changed"),
+      v.literal("reworded"),
+      v.literal("withdrawn"),
+    ),
+    status: v.union(v.literal("answered"), v.literal("waiting")),
+    quote: v.optional(v.string()),
+    section: v.optional(v.string()),
+    answer: v.optional(v.string()),
+    headline: v.optional(v.string()),
+    // Previous quote and answer, for was / now.
+    prevQuote: v.optional(v.string()),
+    prevAnswer: v.optional(v.string()),
+    prevCapturedAt: v.optional(v.number()),
+    capturedAt: v.number(),
+    snapshotId: v.optional(v.id("snapshots")),
+    changeId: v.optional(v.id("changes")),
+    // True when this row was reconstructed from stored captures at ask time.
+    retro: v.boolean(),
+    // Decision model probability that the fact materially changed.
+    factChanged: v.optional(v.number()),
+    at: v.number(),
+  })
+    .index("by_question", ["questionId", "capturedAt"])
+    .index("by_change", ["changeId"]),
 
   // Every fetched version of a page. Content is markdown from Firecrawl.
   snapshots: defineTable({

@@ -269,3 +269,169 @@ export async function decideNovelty(args: {
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// SPEC-019: watch a fact, not a page.
+
+type ChatJson = Record<string, unknown>;
+
+// One JSON reply from the OpenAI-compatible model, or null.
+async function chatJson(system: string, user: string, maxTokens = 400): Promise<ChatJson | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
+  const model = process.env.OPENAI_MODEL ?? "gpt-5-mini";
+  try {
+    const res = await fetch(baseUrl + "/chat/completions", {
+      method: "POST",
+      signal: AbortSignal.timeout(40_000),
+      headers: { "content-type": "application/json", authorization: "Bearer " + apiKey },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        response_format: { type: "json_object" },
+        max_completion_tokens: maxTokens,
+      }),
+    });
+    if (!res.ok) {
+      console.warn("answer model returned", res.status, (await res.text()).slice(0, 300));
+      return null;
+    }
+    const data = (await res.json()) as { choices?: Array<{ message?: { content?: string }; finish_reason?: string }> };
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      // A reasoning model can spend the whole budget thinking and return nothing.
+      console.warn("answer model returned no content, finish_reason:", data.choices?.[0]?.finish_reason ?? "unknown");
+      return null;
+    }
+    return JSON.parse(content) as ChatJson;
+  } catch (e) {
+    console.warn("answer model failed", String(e));
+    return null;
+  }
+}
+
+export type AnswerPick = {
+  answered: boolean;
+  start: number | null;
+  end: number | null;
+  answer: string;
+  headline: string;
+  isoDate: string | null;
+  relative: boolean;
+};
+
+const ANSWER_SYSTEM =
+  "You find where a web page answers a reader's question. The page is given as numbered lines (L<n>: text); '…' marks lines that were left out. " +
+  "Reply with JSON only: {\"answered\": boolean, \"start\": number|null, \"end\": number|null, \"answer\": string, \"headline\": string, \"isoDate\": string|null, \"relative\": boolean}. " +
+  "start and end are the line numbers of the ONE contiguous block (one to three lines) that states the answer. Never copy or rewrite the text; only give numbers. " +
+  "If the page does not state the answer, set answered to false, start and end to null, and answer to an empty string. Do not answer from general knowledge. " +
+  "answer: one short plain-English sentence answering the question using only facts in those lines; every number you write must appear in those lines. " +
+  "headline: the answer itself in at most eight words, without restating the question (for example 'AED 1,500 per vehicle, due 10 October' or 'Closed until the end of next month'); every number in it must appear in those lines. " +
+  "isoDate: YYYY-MM-DD when the answer names a complete calendar date, else null. relative: true if the answer only makes sense relative to today (for example 'next Friday').";
+
+export async function pickAnswer(args: {
+  question: string;
+  numberedPage: string;
+  title?: string;
+  retryReason?: string;
+  previousQuote?: string;
+}): Promise<AnswerPick | null> {
+  const user =
+    "Page: " + (args.title ?? "(untitled)") + "\n\nQuestion: " + args.question + "\n\nPage lines:\n" + args.numberedPage +
+    (args.previousQuote
+      ? "\n\nLast time, the answer was stated in these words:\n" + args.previousQuote +
+        "\nIf lines with the same meaning still answer the question, choose them again; choose other lines only if they now answer it instead."
+      : "") +
+    (args.retryReason ? "\n\nYour previous choice was rejected: " + args.retryReason + ". Choose again." : "");
+  const j = await chatJson(ANSWER_SYSTEM, user, 1500);
+  if (!j) return null;
+  const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? Math.round(x) : null);
+  return {
+    answered: j.answered === true,
+    start: num(j.start),
+    end: num(j.end ?? j.start),
+    answer: typeof j.answer === "string" ? j.answer.trim().slice(0, 300) : "",
+    headline: typeof j.headline === "string" ? j.headline.trim().slice(0, 80) : "",
+    isoDate: typeof j.isoDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(j.isoDate) ? j.isoDate : null,
+    relative: j.relative === true,
+  };
+}
+
+export type SuggestionPick = { question: string; start: number; end: number; answer: string };
+
+const SUGGEST_SYSTEM =
+  "You help someone decide what to watch on a public web page. The page is given as numbered lines (L<n>: text). " +
+  "List up to 3 specific questions that a resident, parent, customer or applicant would want answered and that this page answers explicitly right now. " +
+  "Prefer money, dates, deadlines, opening times, availability, requirements and closures. Never ask about when the page was updated, visitor or view counts, cookies, menus or navigation. " +
+  "Each question at most 90 characters, in plain English, answerable from one to three contiguous lines. " +
+  "The reader will watch the question over time, so ask about everything its lines state that a reader would act on (for example both when and how much), so that a change to any of those facts changes the answer. " +
+  "Reply with JSON only: {\"suggestions\": [{\"question\": string, \"start\": number, \"end\": number, \"answer\": string}]}. " +
+  "start and end are the line numbers that state the answer; answer is one short sentence using only facts in those lines, and every number in it must appear in those lines.";
+
+// Null when the model is unavailable, so the caller can offer a retry.
+export async function suggestQuestions(args: { numberedPage: string; title?: string }): Promise<SuggestionPick[] | null> {
+  const j = await chatJson(SUGGEST_SYSTEM, "Page: " + (args.title ?? "(untitled)") + "\n\nPage lines:\n" + args.numberedPage, 2500);
+  if (!j) return null;
+  const list = Array.isArray(j?.suggestions) ? (j!.suggestions as unknown[]) : [];
+  const out: SuggestionPick[] = [];
+  for (const s of list.slice(0, 5)) {
+    const o = s as Record<string, unknown>;
+    if (typeof o.question !== "string" || typeof o.start !== "number") continue;
+    out.push({
+      question: o.question.trim().slice(0, 120),
+      start: Math.round(o.start),
+      end: Math.round(typeof o.end === "number" ? o.end : o.start),
+      answer: typeof o.answer === "string" ? o.answer.trim().slice(0, 300) : "",
+    });
+  }
+  return out;
+}
+
+// Decision model: did the fact change, or only its wording? Probability that
+// the new quote states a materially different fact; null when unavailable.
+export async function decideFactChanged(args: {
+  question: string;
+  before: { quote: string; answer: string };
+  after: { quote: string; answer: string };
+}): Promise<number | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const model = process.env.DECISION_MODEL;
+  if (!apiKey || !model) return null;
+  const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://openrouter.ai/api/v1").replace(/\/v1\/?$/, "");
+  try {
+    const res = await fetch(baseUrl + "/alpha/decisions", {
+      method: "POST",
+      signal: AbortSignal.timeout(20_000),
+      headers: { "content-type": "application/json", authorization: "Bearer " + apiKey },
+      body: JSON.stringify({
+        model,
+        state: { reader_question: args.question, before: args.before, after: args.after },
+        questions: {
+          fact_changed: {
+            type: "noul",
+            instructions:
+              "A reader asked `reader_question`. `before` and `after` are the page's own lines that answered it at two times. Does `after` state a materially different answer than `before`?",
+            criteria: {
+              true: "A different amount, date, time, place, requirement, availability or status: the reader would act differently",
+              false: "The same facts reworded, reformatted or reordered: the reader would do exactly the same",
+            },
+          },
+        },
+      }),
+    });
+    if (!res.ok) {
+      console.warn("fact decision returned", res.status, (await res.text()).slice(0, 300));
+      return null;
+    }
+    const data = (await res.json()) as { answers?: { fact_changed?: { noul?: number } } };
+    const p = data.answers?.fact_changed?.noul;
+    return typeof p === "number" ? p : null;
+  } catch (e) {
+    console.warn("fact decision failed", String(e));
+    return null;
+  }
+}

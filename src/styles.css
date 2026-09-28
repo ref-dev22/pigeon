@@ -438,3 +438,52 @@ code { padding: 3px 6px; border: 1px solid var(--line); border-radius: 3px; back
 .demo-progress .note { color: var(--muted); }
 @keyframes pigeon-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .demo-progress li[data-state="wait"] .mark { animation: none; } }
+
+/* SPEC-019: watch a fact, not a page */
+.facts { display: grid; gap: 8px; margin-top: 10px; min-width: 0; }
+.facts > * { min-width: 0; }
+.fact { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fff; }
+.fact-changed { border-color: #f2d7a9; background: #fffaf2; }
+.fact-gone { border-color: #e2e8f0; background: #f8fafc; }
+.fact-waiting { border-style: dashed; }
+.fact-head { display: flex; align-items: baseline; gap: 8px; }
+.fact-q { flex: 1; font-size: 13px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.fact-x { border: 0; background: transparent; color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.fact-x:hover { color: var(--ink); }
+.fact-chip { flex: none; font-size: 9px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; padding: 3px 7px; border-radius: 3px; border: 1px solid #d5eadd; background: #eff8f3; color: #33795d; }
+.fact-chip.changed { background: #fff3e1; border-color: #f2d7a9; color: #99560e; }
+.fact-chip.waiting { background: #eff8ff; border-color: #cde6f7; color: #27668f; }
+.fact-chip.gone { background: #f1f3f5; border-color: #e1e5e9; color: #596474; }
+.fact-chip.pending { background: #f5f7fa; border-color: #e2e8f0; color: #627084; }
+.fact-chip.reading { background: #f5f7fa; border-color: #e2e8f0; color: #627084; animation: checking-pulse 1.6s ease-in-out infinite; }
+.fact-answer { margin: 6px 0 2px; font-size: 14px; line-height: 1.5; color: var(--ink); }
+.fact-answer.quiet { color: var(--muted); font-size: 13px; }
+.fact-quote { margin: 6px 0 0; }
+.fact-quote blockquote, .fact-life blockquote { margin: 0; padding: 6px 10px; border-left: 3px solid #16a34a; background: #f9fafb; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: #1f2937; }
+.fact-quote.muted blockquote, .fact-life blockquote { border-left-color: #cbd5e1; color: #475569; }
+.fact-quote-label { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.fact-quote-header { font-size: 11px; color: var(--muted); padding: 0 10px 2px; font-family: ui-monospace, monospace; }
+.fact-quote figcaption { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.fact-life { margin-top: 6px; }
+.fact-life ol { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 6px; font-size: 12px; }
+.fact-life-kind { font-weight: 600; }
+.askbox { display: grid; gap: 6px; }
+.suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.suggest-chip { max-width: 100%; white-space: normal; overflow-wrap: anywhere; border: 1px solid #ecdba6; background: #fffaf0; color: #7a5a12; border-radius: 999px; padding: 5px 11px; font-size: 12px; cursor: pointer; text-align: left; }
+.suggest-chip:hover { background: #fff3d6; }
+.suggest-chip:disabled { opacity: .6; cursor: default; }
+.ask-form { display: flex; gap: 6px; }
+.ask-form input { flex: 1; min-width: 0; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; background: #fff; }
+@media (max-width: 560px) { .ask-form { flex-direction: column; } }
+
+/* SPEC-019 layout fix: the button column must never squeeze the content.
+   Buttons stack in a column of at most 220px; the page text, questions and
+   answers get the rest. */
+.watch { grid-template-columns: 8px minmax(0, 1fr) minmax(0, max-content); }
+.watch .actions { flex-direction: column; align-items: stretch; max-width: 220px; }
+.watch .actions .btn { white-space: normal; text-align: center; }
+@media (max-width: 720px) {
+  .watch { grid-template-columns: 8px minmax(0, 1fr); }
+  .watch .actions { grid-column: 2; flex-direction: row; flex-wrap: wrap; max-width: none; align-items: flex-start; }
+}
+.fact-receipt { font-size: 12.5px; color: #4b5563; border-top: 1px dashed #e5e7eb; padding-top: 6px; margin-top: 2px; }

@@ -17,14 +17,15 @@
     "@agentmail/convex": "^0.1.0",
     "@auth/core": "^0.41.1",
     "@convex-dev/auth": "^0.0.95",
+    "@convex-dev/rate-limiter": "^0.4.0",
     "@convex-dev/static-hosting": "^0.2.1",
     "@firecrawl/firecrawl-convex": "^0.1.1",
     "convex": "^1.46.0",
     "diff": "^9.0.0",
     "openai": "^7.19.0",
+    "patch-package": "^8.0.1",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "patch-package": "^8.0.1"
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

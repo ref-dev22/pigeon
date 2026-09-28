@@ -4,6 +4,7 @@ import { Authenticated, Unauthenticated, AuthLoading, useMutation, useQuery } fr
 import { api } from "../convex/_generated/api";
 import { ConvexError } from "convex/values";
 import type { Id } from "../convex/_generated/dataModel";
+import { plainQuote } from "../convex/facts";
 import { FlightFeedback, LogoMark, Reveal, SkyScene } from "./PigeonMotion";
 
 // ---------- tiny hash router ----------
@@ -210,7 +211,7 @@ function TopBar({ cta = false }: { cta?: boolean }) {
       <a className="brand" href="#/">
         <Logo /> Pigeon
       </a>
-      <span className="tagline">Watch any page. Get told when it really changes.</span>
+      <span className="tagline">Ask a public page a question. Hear back when the answer moves.</span>
       <span className="spacer" />
       {cta && (
         <button
@@ -276,11 +277,11 @@ function Landing({ route }: { route: Route }) {
             <Logo /> a newsletter for pages that don't have one
           </span>
           <h1 id="hero-title" className="hero-reveal">
-            <span>Get an email when</span>{" "}
-            <span>a page changes.</span>{" "}
-            <em>Only when it matters.</em>
+            <span>Ask a page</span>{" "}
+            <span>a question.</span>{" "}
+            <em>Hear back only when the answer moves.</em>
           </h1>
-          <p className="lede hero-reveal">The pages you need to watch don't send newsletters.</p>
+          <p className="lede hero-reveal">The pages you need to watch don't send newsletters. Pigeon quotes the line that answers you, and writes when that answer changes, first appears, or disappears.</p>
           {route.name === "join" && (
             <p className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
               You have an invite. Sign in or continue as a guest and it will be applied.
@@ -891,8 +892,8 @@ function DemoCard({ boardId, hasEmail }: { boardId: Id<"boards">; hasEmail: bool
       <div className="card-body">
         <b>See a real alert in about a minute.</b>
         <div className="hint" style={{ marginTop: 4, marginBottom: 10 }}>
-          Pigeon watches a fictional community notice board through the real pipeline. Publish a cosmetic edit and watch it stay quiet; publish a fee and
-          deadline change and watch the summary, the importance judgment and the email arrive.
+          Pigeon watches a fictional community notice board through the real pipeline. Tap the question it suggests and it quotes the line that answers it.
+          Publish a cosmetic edit and your answer stays put, so nothing is sent; publish a fee and deadline change and watch the answer move and the email arrive.
         </div>
         {!hasEmail && !saved && (
           <form
@@ -1041,6 +1042,216 @@ function DemoProgress({ w }: { w: WatchListItem }) {
   );
 }
 
+// ---------- SPEC-019: watch a fact, not a page ----------
+type QuestionItem = WatchListItem["questions"][number];
+type AnswerRow = QuestionItem["history"][number];
+
+function kindLabel(kind: string): string {
+  switch (kind) {
+    case "first": return "First read";
+    case "answered": return "Now answered";
+    case "changed": return "Changed";
+    case "reworded": return "Reworded, same fact";
+    case "withdrawn": return "No longer on the page";
+    default: return kind;
+  }
+}
+
+function when(ms?: number | null): string {
+  if (!ms) return "";
+  return new Date(ms).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+// The state of a fact, for the chip on its card.
+function factState(q: QuestionItem): { label: string; tone: string } {
+  if (q.status === "evaluating") return q.note ? { label: "Not read yet", tone: "pending" } : { label: "Reading the page…", tone: "reading" };
+  const recent = !!q.lastTransitionAt && Date.now() - q.lastTransitionAt < 3 * 24 * 3600_000;
+  if (q.status === "waiting") {
+    return q.lastKind === "withdrawn"
+      ? { label: "No longer on the page", tone: "gone" }
+      : { label: "Not stated yet", tone: "waiting" };
+  }
+  if (recent && q.lastKind === "changed") return { label: "Changed", tone: "changed" };
+  if (recent && q.lastKind === "answered") return { label: "Now answered", tone: "changed" };
+  return { label: "Answered", tone: "answered" };
+}
+
+function QuoteBlock({ quote, header, section, captured, label, muted = false }: {
+  quote?: string | null;
+  header?: string | null;
+  section?: string | null;
+  captured?: number | null;
+  label?: string;
+  muted?: boolean;
+}) {
+  if (!quote) return null;
+  return (
+    <figure className={"fact-quote" + (muted ? " muted" : "")}>
+      {label && <div className="fact-quote-label">{label}</div>}
+      {header && <div className="fact-quote-header">{header}</div>}
+      <blockquote>{plainQuote(quote)}</blockquote>
+      <figcaption>
+        {section ? <>under “{section}” · </> : null}
+        {captured ? <>on the page {when(captured)}</> : null}
+      </figcaption>
+    </figure>
+  );
+}
+
+function FactCard({ q }: { q: QuestionItem }) {
+  const remove = useMutation(api.questions.remove);
+  const [open, setOpen] = useState(false);
+  const state = factState(q);
+  const lastGone = q.history.find((h: AnswerRow) => h.kind === "withdrawn");
+  const lastChange = q.history.find((h: AnswerRow) => h.kind === "changed");
+  const showWas = state.tone === "changed" && q.lastKind === "changed" && !!lastChange?.prevQuote;
+  return (
+    <div className={"fact fact-" + state.tone} data-pigeon-fact={state.tone}>
+      <div className="fact-head">
+        <span className={"fact-chip " + state.tone}>{state.label}</span>
+        <span className="fact-q">{q.text}</span>
+        <button className="fact-x" title="Stop watching this question" aria-label="Stop watching this question" onClick={() => void remove({ questionId: q._id })}>
+          ×
+        </button>
+      </div>
+      {q.status === "answered" && (
+        <>
+          {q.answer && <div className="fact-answer">{q.answer}</div>}
+          <QuoteBlock quote={q.quote} header={q.tableHeader} section={q.section} captured={q.capturedAt} label={showWas ? "Now" : undefined} />
+          {showWas && <QuoteBlock quote={lastChange!.prevQuote} captured={lastChange!.prevCapturedAt} label="Before" muted />}
+          {q.relative && <div className="hint">This answer depends on today's date.</div>}
+        </>
+      )}
+      {q.status === "waiting" && state.tone === "gone" && (
+        <>
+          <div className="fact-answer">Pigeon can no longer find this on the page. It keeps watching in case it comes back.</div>
+          <QuoteBlock quote={lastGone?.prevQuote} captured={lastGone?.prevCapturedAt} label="Last seen" muted />
+        </>
+      )}
+      {q.status === "waiting" && state.tone === "waiting" && (
+        <div className="fact-answer quiet">
+          The page does not say yet. Pigeon is watching{q.waitingSince ? " since " + when(q.waitingSince) : ""} and will write after the first check that finds it.
+        </div>
+      )}
+      {q.note && <div className="hint">{q.note}</div>}
+      {q.truncatedPage && <div className="hint">This page is longer than Pigeon keeps; the answer may be in the part not read.</div>}
+      {q.status !== "evaluating" && !!q.checksSinceAsk && (
+        <div className="fact-receipt" data-pigeon-receipt>
+          Checked {q.checksSinceAsk} time{q.checksSinceAsk === 1 ? "" : "s"} since you asked.{" "}
+          {q.movesSinceAsk === 0
+            ? "The answer has not moved."
+            : "The answer moved " + (q.movesSinceAsk === 1 ? "once." : q.movesSinceAsk + " times.")}
+        </div>
+      )}
+      {q.history.length > 1 && (
+        <div className="fact-life">
+          <button className="btn link" onClick={() => setOpen(!open)}>
+            {open ? "Hide" : "Show"} the life of this fact ({q.history.length})
+          </button>
+          {open && (
+            <ol>
+              {q.history.map((h: AnswerRow) => (
+                <li key={h._id}>
+                  <span className="fact-life-kind">{kindLabel(h.kind)}</span> · {when(h.capturedAt)}
+                  {h.retro ? <span className="hint"> · read from an earlier capture</span> : null}
+                  {h.kind === "withdrawn" ? (
+                    h.prevQuote ? <blockquote>{plainQuote(h.prevQuote)}</blockquote> : null
+                  ) : h.quote ? (
+                    <blockquote>{plainQuote(h.quote)}</blockquote>
+                  ) : (
+                    <div className="hint">Not stated on the page.</div>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AskBox({ w }: { w: WatchListItem }) {
+  const ask = useMutation(api.questions.ask);
+  const requestSuggestions = useMutation(api.questions.requestSuggestions);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const full = w.questions.length >= 3;
+  const submit = async (question: string, source: "typed" | "suggested") => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await ask({ watchId: w._id, text: question, source });
+      setText("");
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="askbox" data-pigeon-askbox>
+      {w.suggestions.length > 0 && !full && (
+        <div className="suggest">
+          <span className="hint">This page can answer:</span>
+          {w.suggestions.map((s) => (
+            <button
+              key={s.question}
+              className="suggest-chip"
+              disabled={busy}
+              onClick={() => void submit(s.question, "suggested")}
+            >
+              {s.question}
+            </button>
+          ))}
+        </div>
+      )}
+      {!full && (
+        <form
+          className="ask-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (text.trim()) void submit(text, "typed");
+          }}
+        >
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Ask this page a question, e.g. “When is the fee due?”"
+            maxLength={200}
+            aria-label="Ask this page a question"
+          />
+          <button className="btn small primary" type="submit" disabled={busy || text.trim().length < 5}>
+            {busy ? "Asking…" : "Ask"}
+          </button>
+        </form>
+      )}
+      {w.suggestions.length === 0 && !!w.latestSnapshotId && !w.suggestionsStatus && (
+        <button className="btn link" onClick={() => void requestSuggestions({ watchId: w._id }).catch((e) => setErr(errMsg(e)))}>
+          What can this page answer?
+        </button>
+      )}
+      {w.suggestionsStatus === "pending" && <span className="hint">Reading what this page can answer…</span>}
+      {err && <div className="error">{err}</div>}
+    </div>
+  );
+}
+
+function QuestionBlock({ w }: { w: WatchListItem }) {
+  return (
+    <div className="facts">
+      {w.questions.map((q) => (
+        <FactCard key={q._id} q={q} />
+      ))}
+      <AskBox w={w} />
+      {w.questions.length > 0 && (
+        <div className="hint">With a question here, Pigeon emails everyone on this board only when an answer moves. Other changes are still logged.</div>
+      )}
+    </div>
+  );
+}
+
 function WatchRow({ w }: { w: WatchListItem }) {
   const publishDemoChange = useMutation(api.watches.publishDemoChange);
   const [err, setErr] = useState<string | null>(null);
@@ -1064,6 +1275,7 @@ function WatchRow({ w }: { w: WatchListItem }) {
           {w.focus && <span>focus: “{w.focus}”</span>}
         </div>
         {isDemo && <DemoProgress w={w} />}
+        <QuestionBlock w={w} />
         {w.latestChange && (
           <div className="summary">
             <span className={"chip i" + (w.latestChange.importance ?? 0)}>{importanceLabel(w.latestChange.importance)}</span>{" "}
@@ -1422,6 +1634,32 @@ function ChangePage({ changeId }: { changeId: Id<"changes"> }) {
         )}{" "}
         · detected {ago(change.detectedAt)} · <span className={"chip i" + (change.importance ?? 0)}>{importanceLabel(change.importance)}</span>
       </p>
+      {data.answerMoves.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }} data-pigeon-answer-moves>
+          <div className="card-head">
+            <h2>Your question</h2>
+          </div>
+          <div className="card-body facts">
+            {data.answerMoves.map((m) => (
+              <div key={m._id} className={"fact fact-" + (m.kind === "withdrawn" ? "gone" : "changed")}>
+                <div className="fact-head">
+                  <span className={"fact-chip " + (m.kind === "withdrawn" ? "gone" : "changed")}>{kindLabel(m.kind)}</span>
+                  <span className="fact-q">{m.question}</span>
+                </div>
+                {m.kind !== "withdrawn" && m.answer && <div className="fact-answer">{m.answer}</div>}
+                {m.kind === "withdrawn" ? (
+                  <QuoteBlock quote={m.prevQuote} captured={m.prevCapturedAt} label="Last seen" muted />
+                ) : (
+                  <>
+                    <QuoteBlock quote={m.quote} section={m.section} captured={m.capturedAt} label={m.prevQuote ? "Now" : undefined} />
+                    {m.prevQuote && <QuoteBlock quote={m.prevQuote} captured={m.prevCapturedAt} label="Before" muted />}
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-body">
           <div style={{ fontSize: 17 }}>{change.summary ?? "Summarising…"}</div>
